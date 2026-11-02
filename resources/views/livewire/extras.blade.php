@@ -159,9 +159,14 @@
                                     @if($canEdit)
                                         <flux:dropdown>
                                             <button type="button" class="chip {{ $chips[$extra->status] }}">{{ ucfirst($extra->status) }} <i class="ph ph-caret-down text-[0.6rem]"></i></button>
-                                            <flux:menu>
+                                            <flux:menu class="min-w-36!">
                                                 @foreach($statuses as $status)
-                                                    <flux:menu.item wire:click="setStatus({{ $extra->id }}, '{{ $status }}')">{{ ucfirst($status) }}</flux:menu.item>
+                                                    <flux:menu.item wire:click="setStatus({{ $extra->id }}, '{{ $status }}')" class="justify-between gap-3">
+                                                        <span class="chip {{ $chips[$status] }}">{{ ucfirst($status) }}</span>
+                                                        @if($status === $extra->status)
+                                                            <i class="ph ph-check text-xs text-ink-2"></i>
+                                                        @endif
+                                                    </flux:menu.item>
                                                 @endforeach
                                             </flux:menu>
                                         </flux:dropdown>
