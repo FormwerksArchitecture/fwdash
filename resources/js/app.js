@@ -1,4 +1,5 @@
 import Chart from 'chart.js/auto';
+import { getRelativePosition } from 'chart.js/helpers';
 
 Chart.defaults.font.family = "'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif";
 Chart.defaults.font.size = 11;
@@ -21,6 +22,175 @@ const compact = (value) => {
 };
 
 const grid = { color: '#f0f1f2' };
+
+/** The index of the Projected bar whose column (its width, the chart's full height) holds the point, or null. */
+const projectionBarAt = (chart, x, y) => {
+    const { left, right, top, bottom } = chart.chartArea;
+
+    if (x < left || x > right || y < top || y > bottom) {
+        return null;
+    }
+
+    const datasetIndex = chart.data.datasets.findIndex((dataset) => dataset.label === 'Projected');
+    const index = chart.getDatasetMeta(datasetIndex).data.findIndex((bar) => {
+        const { x: middle, width } = bar.getProps(['x', 'width'], true);
+
+        return Math.abs(x - middle) <= width / 2;
+    });
+
+    return index === -1 ? null : index;
+};
+
+/*
+ * Overview's projected billing is set a quarter at a time. Drag a grey bar up
+ * or down and the quarter's total follows the pointer, in steps of $1,000,
+ * spread evenly over its months; let go and a bubbling "projection-set" event
+ * carries { quarter, total }. A click without dragging raises
+ * "projection-open" with the quarter, its total and where it was clicked, so
+ * the page can offer a box to type the total into.
+ */
+const projectionDrag = ({ quarters, keys }) => {
+    let drag = null;
+    const listeners = {};
+
+    const projectedOf = (chart) => chart.data.datasets.find((dataset) => dataset.label === 'Projected').data;
+
+    const quarterTotal = (chart, quarter) => {
+        const values = projectedOf(chart).filter((value, index) => quarters[index] === quarter && value !== null);
+
+        return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+    };
+
+    const spread = (chart, quarter, total) => {
+        const data = projectedOf(chart);
+
+        quarters.forEach((barQuarter, index) => {
+            if (barQuarter === quarter) {
+                data[index] = (total * keys[index].length) / 3;
+            }
+        });
+    };
+
+    return {
+        id: 'projectionDrag',
+
+        afterInit(chart) {
+            const canvas = chart.canvas;
+            const scale = chart.options.scales.y;
+
+            const valueAt = (y) => {
+                const { top, bottom } = chart.chartArea;
+                const value = chart.scales.y.getValueForPixel(Math.min(Math.max(y, top), bottom));
+
+                return Math.max(0, Math.round(value / 1000) * 1000);
+            };
+
+            listeners.pointerdown = (event) => {
+                const { x, y } = getRelativePosition(event, chart);
+                const index = projectionBarAt(chart, x, y);
+
+                chart.$projectionHandled = index !== null;
+
+                if (index === null) {
+                    return;
+                }
+
+                // Hold the axis still while dragging, so the bar tracks the pointer.
+                scale.min = chart.scales.y.min;
+                scale.max = chart.scales.y.max;
+                drag = { index, startY: y, moved: false, total: null };
+                canvas.setPointerCapture(event.pointerId);
+                event.preventDefault();
+            };
+
+            listeners.pointermove = (event) => {
+                const { y } = getRelativePosition(event, chart);
+
+                if (!drag || (!drag.moved && Math.abs(y - drag.startY) < 4)) {
+                    return;
+                }
+
+                drag.moved = true;
+                drag.total = (valueAt(y) * 3) / keys[drag.index].length;
+                spread(chart, quarters[drag.index], drag.total);
+                chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+                chart.update('none');
+            };
+
+            listeners.pointerup = (event) => {
+                if (!drag) {
+                    return;
+                }
+
+                const { index, moved, total } = drag;
+                const quarter = quarters[index];
+                const { x, y } = getRelativePosition(event, chart);
+
+                drag = null;
+                scale.min = undefined;
+                scale.max = undefined;
+
+                if (moved) {
+                    canvas.dispatchEvent(new CustomEvent('projection-set', { bubbles: true, detail: { quarter, total } }));
+
+                    return;
+                }
+
+                canvas.dispatchEvent(
+                    new CustomEvent('projection-open', {
+                        bubbles: true,
+                        detail: { quarter, total: quarterTotal(chart, quarter), x, y },
+                    }),
+                );
+            };
+
+            Object.entries(listeners).forEach(([type, listener]) => canvas.addEventListener(type, listener));
+        },
+
+        afterDatasetsDraw(chart) {
+            const datasetIndex = chart.data.datasets.findIndex((dataset) => dataset.label === 'Projected');
+            const bars = chart.getDatasetMeta(datasetIndex).data;
+            const values = projectedOf(chart);
+            const baseline = chart.scales.y.getPixelForValue(0);
+            const { ctx } = chart;
+
+            // A grip on top of each grey bar, or a dashed stub where none is set yet, so it reads as something to drag.
+            ctx.save();
+            bars.forEach((bar, index) => {
+                const { x, y, width } = bar.getProps(['x', 'y', 'width'], true);
+                const top = values[index] === null ? baseline - 22 : y;
+
+                if (values[index] === null) {
+                    ctx.setLineDash([3, 3]);
+                    ctx.strokeStyle = '#9aa4ae';
+                    ctx.strokeRect(x - width / 2 + 1, top, width - 2, baseline - top);
+                    ctx.setLineDash([]);
+                }
+
+                ctx.fillStyle = '#5c6873';
+                [-3, 0, 3].forEach((offset) => ctx.fillRect(x - 7, top + 8 + offset, 14, 1.5));
+            });
+            ctx.restore();
+
+            if (!drag?.moved) {
+                return;
+            }
+
+            const { x, y } = bars[drag.index].getProps(['x', 'y'], true);
+
+            ctx.save();
+            ctx.font = `600 11px ${Chart.defaults.font.family}`;
+            ctx.fillStyle = '#00263E';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Q${quarters[drag.index]} ${compact(drag.total)}`, x, y - 6);
+            ctx.restore();
+        },
+
+        beforeDestroy(chart) {
+            Object.entries(listeners).forEach(([type, listener]) => chart.canvas.removeEventListener(type, listener));
+        },
+    };
+};
 
 const charts = {
     activity: ({ labels, payments, hours }) => ({
@@ -59,25 +229,40 @@ const charts = {
         },
     }),
 
-    overview: ({ labels, actual, runRate, cost, profit, projected = [], projectedCost = [] }) => ({
+    overview: ({ labels, actual, cost, profit, projected = [], projectedCost = [], quarters = [], keys = [], editable = false }) => ({
         data: {
             labels,
             datasets: [
                 { type: 'line', label: 'Profit', data: profit, borderColor: '#2f8a67', backgroundColor: '#2f8a67', borderWidth: 2, pointRadius: 3, tension: 0, order: 0 },
-                ...(projected.some((value) => value !== null)
-                    ? [{ type: 'line', label: 'Projected billing', data: projected, borderColor: '#00263E', backgroundColor: '#fff', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 4, pointBorderWidth: 1.5, showLine: true, spanGaps: true, tension: 0, order: 0 }]
-                    : []),
                 ...(projectedCost.some((value) => value !== null)
                     ? [{ type: 'line', label: 'Projected cost', data: projectedCost, borderColor: '#c4694a', backgroundColor: '#fff', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 4, pointBorderWidth: 1.5, spanGaps: true, tension: 0, order: 0 }]
                     : []),
-                { type: 'bar', label: 'Billed', data: actual, backgroundColor: '#00263E', stack: 'billed', maxBarThickness: 26, order: 1 },
-                { type: 'bar', label: 'Run rate', data: runRate, backgroundColor: '#dfe4e9', stack: 'billed', maxBarThickness: 26, order: 1 },
-                { type: 'bar', label: 'Cost', data: cost, backgroundColor: '#c4694a', stack: 'cost', maxBarThickness: 26, order: 1 },
+                { type: 'bar', label: 'Billed', data: actual, backgroundColor: '#00263E', stack: 'billed', order: 1 },
+                { type: 'bar', label: 'Projected', data: [...projected], backgroundColor: '#d3d8dd', hoverBackgroundColor: '#bcc3ca', stack: 'projected', order: 1 },
+                { type: 'bar', label: 'Cost', data: cost, backgroundColor: '#c4694a', stack: 'cost', order: 1 },
             ],
         },
+        plugins: editable ? [projectionDrag({ quarters, keys })] : [],
         options: {
-            onClick: (event, elements, chart) => emitClick(chart, elements, actual.map((value) => value !== null)),
-            onHover: (event, elements, chart) => pointerOver(event, elements, chart, actual.map((value) => value !== null)),
+            datasets: { bar: { barPercentage: 1, categoryPercentage: 0.66 } },
+            onClick: (event, elements, chart) => {
+                if (chart.$projectionHandled) {
+                    chart.$projectionHandled = false;
+
+                    return;
+                }
+
+                emitClick(chart, elements, actual.map((value) => value !== null));
+            },
+            onHover: (event, elements, chart) => {
+                if (editable && projectionBarAt(chart, event.x, event.y) !== null) {
+                    chart.canvas.style.cursor = 'ns-resize';
+
+                    return;
+                }
+
+                pointerOver(event, elements, chart, actual.map((value) => value !== null));
+            },
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { position: 'bottom' },
@@ -142,23 +327,34 @@ document.addEventListener('livewire:navigating', () => {
     Object.values(Chart.instances).forEach((chart) => chart.destroy());
 });
 
+/*
+ * The chart is held in a closure, not on the Alpine component. Alpine wraps
+ * its data in a reactive Proxy, and a chart destroyed through that proxy asks
+ * Chart.js's shared animator to forget the proxy rather than the chart, so the
+ * dead chart stayed in the animator. Its next tick threw on the missing canvas
+ * and stalled the animator, which left every chart drawn after it blank (switching
+ * Overview's quarters quickly).
+ */
 document.addEventListener('alpine:init', () => {
-    window.Alpine.data('chart', (kind, payload) => ({
-        instance: null,
+    window.Alpine.data('chart', (kind, payload) => {
+        let instance = null;
 
-        init() {
-            this.render(payload);
-        },
+        return {
+            init() {
+                this.render(payload);
+            },
 
-        render(next) {
-            this.instance?.destroy();
-            this.instance = new Chart(this.$refs.canvas, charts[kind](next));
-        },
+            render(next) {
+                instance?.destroy();
+                instance = new Chart(this.$refs.canvas, charts[kind](next));
+            },
 
-        destroy() {
-            this.instance?.destroy();
-        },
-    }));
+            destroy() {
+                instance?.destroy();
+                instance = null;
+            },
+        };
+    });
 });
 
 /*

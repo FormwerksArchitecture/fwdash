@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Actions\Billing\SetProjectionAction;
+use App\Actions\Billing\SetQuarterProjectionAction;
 use App\Billing\BillingEngine;
 use App\Billing\PeriodReports;
 use App\Billing\Spending;
@@ -25,8 +26,8 @@ use Livewire\Component;
  * month without one never reads as pure profit or pure loss.
  *
  * Projections are typed here, a billing and a cost figure per month, and set
- * against what came in. A month with projected billing shows that on the
- * chart in place of the run rate.
+ * against what came in. Projected billing shows on the chart as a grey bar
+ * beside each month's billed bar.
  */
 /**
  * @property-read Collection<int, int> $years
@@ -73,6 +74,16 @@ class Overview extends Component
 
         $this->resetValidation();
         $setProjection->execute($month, $field, $value);
+
+        unset($this->figures);
+    }
+
+    public function saveQuarterProjection(int $quarter, ?string $total, SetQuarterProjectionAction $setQuarterProjection): void
+    {
+        $this->authorize(Permission::EditBilling->value);
+
+        $this->resetValidation();
+        $setQuarterProjection->execute($this->year, $quarter, $total);
 
         unset($this->figures);
     }
@@ -203,20 +214,47 @@ class Overview extends Component
                 'cost' => $months->sum('projectedCost'),
                 'any' => $months->contains(fn (array $month) => $month['projectedBilled'] !== null || $month['projectedCost'] !== null),
             ],
-            'chart' => [
-                'labels' => $months->pluck('label')->all(),
-                'actual' => $months->pluck('billed')->all(),
-                'runRate' => $months->map(fn (array $month) => $month['basis'] === 'runrate' && $month['projectedBilled'] === null ? $month['revenue'] : null)->all(),
-                'projected' => $months->pluck('projectedBilled')->all(),
-                'projectedCost' => $months->pluck('projectedCost')->all(),
-                'cost' => $months->map(fn (array $month) => $month['basis'] === 'actual' && $month['cost'] ? $month['cost']['total'] : null)->all(),
-                'profit' => $months->map(fn (array $month) => $month['basis'] === 'actual' && $month['cost'] ? round($month['billed'] - $month['cost']['total'], 2) : null)->all(),
-            ],
+            'chart' => $this->chartBars($months),
+            'quarterProjections' => $months->groupBy(fn (array $month) => (int) ceil($month['month'] / 3))
+                ->map(fn (Collection $quarter) => $quarter->whereNotNull('projectedBilled')->isNotEmpty() ? round($quarter->sum('projectedBilled'), 2) : null)
+                ->all(),
             'ring' => [
                 'labels' => array_keys($divisions),
                 'values' => array_values($divisions),
                 'colors' => array_slice(PeriodReports::Slots, 0, count($divisions)),
             ],
+        ];
+    }
+
+    /**
+     * The chart's bars: one a month for a quarter, one a quarter for the year.
+     * Each carries its quarter and month keys, so a click or a dragged
+     * projection knows what it stands for.
+     *
+     * @param  Collection<int, array<string, mixed>>  $months
+     * @return array<string, mixed>
+     */
+    protected function chartBars(Collection $months): array
+    {
+        $bars = $this->showsQuarter()
+            ? $months->map(fn (array $month) => ['label' => $month['label'], 'quarter' => $this->quarter, 'months' => collect([$month])])
+            : $months->groupBy(fn (array $month) => (int) ceil($month['month'] / 3))
+                ->map(fn (Collection $quarter, int $number) => ['label' => "Q{$number}", 'quarter' => $number, 'months' => $quarter])
+                ->values();
+
+        $total = fn (Collection $values) => $values->contains(fn ($value) => $value !== null) ? round($values->sum(), 2) : null;
+        $actualCost = fn (array $month) => $month['basis'] === 'actual' && $month['cost'] ? (float) $month['cost']['total'] : null;
+
+        return [
+            'labels' => $bars->pluck('label')->all(),
+            'quarters' => $bars->pluck('quarter')->all(),
+            'keys' => $bars->map(fn (array $bar) => $bar['months']->pluck('key')->all())->all(),
+            'actual' => $bars->map(fn (array $bar) => $total($bar['months']->pluck('billed')))->all(),
+            'projected' => $bars->map(fn (array $bar) => $total($bar['months']->pluck('projectedBilled')))->all(),
+            'projectedCost' => $bars->map(fn (array $bar) => $total($bar['months']->pluck('projectedCost')))->all(),
+            'cost' => $bars->map(fn (array $bar) => $total($bar['months']->map($actualCost)))->all(),
+            'profit' => $bars->map(fn (array $bar) => $total($bar['months']->map(fn (array $month) => $actualCost($month) !== null ? $month['billed'] - $actualCost($month) : null)))->all(),
+            'editable' => auth()->user()->can(Permission::EditBilling->value),
         ];
     }
 

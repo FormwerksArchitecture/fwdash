@@ -6,7 +6,6 @@
     $byQuarter = $this->showsQuarter();
     $spanName = $byQuarter ? "Q{$quarter} {$year}" : (string) $year;
     $priorName = $byQuarter ? 'Q'.$quarter.' '.($year - 1) : (string) ($year - 1);
-    $firstMonth = $this->spanMonths()[0];
 @endphp
 
 <div class="space-y-8">
@@ -114,7 +113,11 @@
                 <div>
                     <h2 class="section-title">{{ __('Billed, cost and profit by month') }}</h2>
                     <p class="section-note">
-                        {{ __('Months not yet entered show your projection, or else the year\'s run rate of :rate a month. Click a month to see where its money went.', ['rate' => Format::compact($f['runRate'])]) }}
+                        @if($f['chart']['editable'])
+                            {{ __('Grey bars are projected billing; set them below the chart or drag one. Click a bar to see where the money went.') }}
+                        @else
+                            {{ __('Grey bars are the billing the partners projected. Click a bar to see where the money went.') }}
+                        @endif
                         @if($f['costsWaiting'])
                             {{ __('Costs for :months are in but wait for month end.', ['months' => implode(', ', $f['costsWaiting'])]) }}
                         @endif
@@ -128,7 +131,50 @@
                     @endif
                 </div>
             </div>
-            <x-chart kind="overview" :data="$f['chart']" height="18rem" class="mt-4" x-on:chart-click="$wire.dispatch('show-spending', { months: ['{{ $year }}-' + String($event.detail.index + {{ $firstMonth }}).padStart(2, '0')] })" />
+            <div
+                class="relative mt-4"
+                x-data="{ editing: null, typed: '' }"
+                x-on:projection-set="$wire.saveQuarterProjection($event.detail.quarter, String($event.detail.total))"
+                x-on:projection-open="editing = $event.detail; typed = $event.detail.total === null ? '' : Math.round($event.detail.total).toLocaleString('en-CA'); $nextTick(() => $refs.typed.select())"
+            >
+                <x-chart kind="overview" :data="$f['chart']" height="18rem" x-on:chart-click="$wire.dispatch('show-spending', { months: {{ \Illuminate\Support\Js::from($f['chart']['keys']) }}[$event.detail.index] })" />
+
+                <form
+                    x-show="editing"
+                    x-cloak
+                    x-on:submit.prevent="$wire.saveQuarterProjection(editing.quarter, typed); editing = null"
+                    x-on:keydown.escape="editing = null"
+                    x-on:click.outside="$event.target.tagName === 'CANVAS' || (editing = null)"
+                    x-bind:style="editing && { left: editing.x + 'px', top: editing.y + 'px' }"
+                    class="absolute z-10 w-52 -translate-x-1/2 -translate-y-full rounded-md border border-[#e6e8ea] bg-white p-3 shadow-lg"
+                >
+                    <label class="block text-xs text-muted" for="quarter-projection">
+                        <span x-text="editing && `Projected billing for Q${editing.quarter} {{ $year }}`"></span>
+                    </label>
+                    <input id="quarter-projection" x-ref="typed" x-model="typed" class="cell-input mt-1 w-full" inputmode="decimal" placeholder="$0">
+                    <p class="mt-1 text-[11px] text-muted">{{ __('Split evenly over its three months. Clear it to remove.') }}</p>
+                </form>
+            </div>
+
+            @if($f['chart']['editable'])
+                <div class="mt-4 flex flex-wrap items-end gap-4 border-t border-line pt-4">
+                    @foreach($f['quarterProjections'] as $number => $total)
+                        <div wire:key="quarter-projection-{{ $year }}-{{ $number }}-{{ $total }}" class="w-40">
+                            <label class="field-label" for="quarter-projection-{{ $number }}">{{ __('Q:quarter projected', ['quarter' => $number]) }}</label>
+                            <input
+                                id="quarter-projection-{{ $number }}"
+                                class="field-input text-right tabular-nums"
+                                value="{{ $total === null ? '' : number_format($total, 0, '.', ',') }}"
+                                placeholder="$0"
+                                inputmode="decimal"
+                                wire:change="saveQuarterProjection({{ $number }}, $event.target.value)"
+                                x-on:keydown.enter="$event.target.blur()"
+                            >
+                        </div>
+                    @endforeach
+                    <p class="max-w-xs pb-2 text-xs text-muted">{{ __('Type the quarter\'s total and press Enter, or drag a grey bar by its handle. It is split evenly over the quarter\'s months.') }}</p>
+                </div>
+            @endif
         </div>
 
         <div class="space-y-4">
@@ -164,7 +210,7 @@
             <div class="flex flex-wrap items-baseline justify-between gap-2 px-6 pt-5">
                 <div>
                     <h2 class="section-title">{{ __('Projections') }}</h2>
-                    <p class="section-note">{{ $canProject ? __('Type what you expect to bill and spend each month; it shows on the chart as a dashed line and is set against what comes in.') : __('What the partners expect to bill and spend each month, against what came in.') }}</p>
+                    <p class="section-note">{{ $canProject ? __('Type what you expect to bill and spend each month; billing shows on the chart as a grey bar and cost as a dashed line, set against what comes in.') : __('What the partners expect to bill and spend each month, against what came in.') }}</p>
                 </div>
                 @error('projection') <p class="error-note">{{ $message }}</p> @enderror
             </div>

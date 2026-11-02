@@ -183,3 +183,43 @@ it('needs edit billing to set a projection', function () {
         ->call('saveProjection', '2026-05', 'billed', '100')
         ->assertForbidden();
 });
+
+it('charts the whole year as four quarters', function () {
+    MonthlyProjection::create(['month' => '2026-05', 'billed' => 12000]);
+
+    $figures = Livewire::test(Overview::class, ['year' => 2026, 'span' => 'year'])->instance()->figures;
+    $chart = $figures['chart'];
+
+    expect($chart)->toMatchArray([
+        'labels' => ['Q1', 'Q2', 'Q3', 'Q4'],
+        'quarters' => [1, 2, 3, 4],
+        'actual' => [null, 16000.0, null, null],
+        'projected' => [null, 12000.0, null, null],
+        'profit' => [null, 2500.0, null, null],
+    ])->and($chart['keys'][1])->toBe(['2026-04', '2026-05', '2026-06'])
+        ->and($figures['quarterProjections'])->toBe([1 => null, 2 => 12000.0, 3 => null, 4 => null]);
+});
+
+it('splits a quarter\'s projected billing evenly over its months', function () {
+    $component = Livewire::test(Overview::class, ['year' => 2026, 'quarter' => 2])
+        ->call('saveQuarterProjection', 2, '$10,000');
+
+    expect(MonthlyProjection::orderBy('month')->pluck('billed', 'month')->all())
+        ->toBe(['2026-04' => '3333.33', '2026-05' => '3333.33', '2026-06' => '3333.34'])
+        ->and($component->instance()->figures['chart']['projected'])->toBe([3333.33, 3333.33, 3333.34]);
+
+    $component->call('saveQuarterProjection', 2, 'lots')->assertHasErrors('projection');
+
+    $component->call('saveQuarterProjection', 2, '');
+    expect(MonthlyProjection::count())->toBe(0);
+});
+
+it('needs edit billing to set a quarter\'s projection', function () {
+    $viewer = User::factory()->staff()->create();
+    $viewer->givePermissionTo(Permission::ViewFinancials->value);
+
+    Livewire::actingAs($viewer)
+        ->test(Overview::class, ['year' => 2026])
+        ->call('saveQuarterProjection', 2, '9000')
+        ->assertForbidden();
+});
