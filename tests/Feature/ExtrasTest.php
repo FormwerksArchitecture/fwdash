@@ -18,9 +18,9 @@ beforeEach(function () {
     BillingPeriod::create(['period' => '2026-06-30', 'status' => 'open']);
 
     DB::table('hour_lines')->insert([
-        ['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Adam', 'hours' => 10, 'rate' => 150, 'amount' => null],
-        ['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Beth', 'hours' => 2, 'rate' => 120, 'amount' => 0],
-        ['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Beth', 'hours' => null, 'rate' => null, 'amount' => 300],
+        ['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Adam', 'hours' => 10, 'rate' => 150, 'amount' => null, 'confirmed_at' => now()],
+        ['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Beth', 'hours' => 2, 'rate' => 120, 'amount' => 0, 'confirmed_at' => now()],
+        ['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Beth', 'hours' => null, 'rate' => null, 'amount' => 300, 'confirmed_at' => now()],
     ]);
 
     DB::table('month_hourly')->insert([

@@ -16,7 +16,7 @@ beforeEach(function () {
     BillingPeriod::create(['period' => '2026-07-31', 'status' => 'open']);
 
     DB::table('month_entries')->insert(['period' => '2026-06-30', 'job_number' => '#1', 'phase_code' => 'SD', 'pct_complete' => 0.125, 'amount' => null, 'fee_at_entry' => 40000, 'note' => null]);
-    DB::table('hour_lines')->insert(['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Adam', 'hours' => 2.5, 'rate' => 160, 'amount' => null, 'rate_source' => 'imported', 'note' => 'site visit']);
+    DB::table('hour_lines')->insert(['period' => '2026-06-30', 'job_number' => '#1', 'staff' => 'Adam', 'hours' => 2.5, 'rate' => 160, 'amount' => null, 'rate_source' => 'imported', 'note' => 'site visit', 'confirmed_at' => now()]);
     DB::table('month_hourly')->insert(['period' => '2026-06-30', 'job_number' => '#2', 'amount' => 900]);
 });
 

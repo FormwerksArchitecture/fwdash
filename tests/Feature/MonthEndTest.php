@@ -273,3 +273,54 @@ it('prices a consultant fee from the latest rate at its exchange rate, unrounded
 
     expect((float) ConsultantFee::first()->total)->toEqualWithDelta(10.5 * 22 * 1.372345, 0.000001);
 });
+
+it('opens a job\'s row on the report with its draws, where it stands and its hourly lines', function () {
+    Livewire::test(MonthEndReport::class, ['period' => '2026-06-30', 'only' => 'all'])
+        ->call('toggleJob', '#2')
+        ->assertSet('expanded', '#2')
+        ->assertSee('Where the job stands')
+        ->assertSee('DD to DP')
+        ->assertSee('0 of 2 confirmed')
+        ->assertSee('Confirm all 2')
+        ->call('toggleJob', '#2')
+        ->assertSet('expanded', null)
+        ->assertDontSee('Where the job stands');
+});
+
+it('confirms a job\'s hourly lines one at a time or all at once, and takes a confirmation back', function () {
+    $component = Livewire::test(MonthEndReport::class, ['period' => '2026-06-30', 'only' => 'all'])->call('toggleJob', '#2');
+    [$adam, $beth] = HourLine::orderBy('id')->pluck('id')->all();
+
+    $component->call('confirmLines', [$adam], true)->assertSee('1 of 2 confirmed');
+    expect(HourLine::find($adam)->confirmed_by)->not->toBeNull()
+        ->and(HourLine::find($beth)->confirmed_by)->toBeNull();
+
+    $component->call('confirmLines', [$adam, $beth], true)->assertSee('2 of 2 confirmed')->assertDontSee('Confirm all');
+    $component->call('confirmLines', [$beth], false)->assertSee('1 of 2 confirmed');
+
+    $this->assertDatabaseCount('audit_logs', 3);
+    $this->assertDatabaseHas('audit_logs', ['table_name' => 'hour_lines', 'action' => 'unconfirm']);
+});
+
+it('confirms only the open job\'s lines for the month', function () {
+    $other = HourLine::create(['period' => '2026-06-30', 'job_number' => '#3', 'staff' => 'Cleo', 'hours' => 2, 'rate' => 100, 'rate_source' => 'typed']);
+
+    Livewire::test(MonthEndReport::class, ['period' => '2026-06-30', 'only' => 'all'])
+        ->call('toggleJob', '#2')
+        ->call('confirmLines', [$other->id], true);
+
+    expect($other->fresh()->confirmed_at)->toBeNull();
+});
+
+it('lets a viewer open a row but not confirm its hours', function () {
+    $viewer = User::factory()->staff()->create();
+    $viewer->givePermissionTo(Permission::ViewFinancials->value);
+
+    Livewire::actingAs($viewer)
+        ->test(MonthEndReport::class, ['period' => '2026-06-30', 'only' => 'all'])
+        ->call('toggleJob', '#2')
+        ->assertSee('Where the job stands')
+        ->assertDontSee('Confirm all')
+        ->call('confirmLines', [HourLine::first()->id], true)
+        ->assertForbidden();
+});

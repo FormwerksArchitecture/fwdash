@@ -4,6 +4,7 @@ namespace App\Actions\Timesheets;
 
 use App\Enums\Phase;
 use App\Enums\TimeCategory;
+use App\Models\Extra;
 use App\Models\Project;
 use App\Models\TimesheetEntry;
 use App\Models\User;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 /*
  * Writes one cell of a person's timesheet. Blank or zero hours clear the cell.
  * Hours are quarter hours, as in Mosaic, and "1:30" means an hour and a half.
+ * Time against an extra (an active one on that project) also brings the
+ * month's hourly billing line for it up to date, unconfirmed.
  */
 class SaveTimesheetEntryAction
 {
@@ -22,6 +25,7 @@ class SaveTimesheetEntryAction
 
     public function __construct(
         protected AuditLogger $audit,
+        protected SyncExtraHoursAction $syncExtraHours,
     ) {}
 
     public function execute(User $user, string $rowKey, string $date, ?string $hours, ?string $note = null): ?TimesheetEntry
@@ -37,11 +41,12 @@ class SaveTimesheetEntryAction
             ->where('category', $row['category'])
             ->where(fn ($query) => $row['job_number'] === null ? $query->whereNull('job_number') : $query->where('job_number', $row['job_number']))
             ->where(fn ($query) => $row['phase_code'] === null ? $query->whereNull('phase_code') : $query->where('phase_code', $row['phase_code']))
+            ->where(fn ($query) => $row['extra_id'] === null ? $query->whereNull('extra_id') : $query->where('extra_id', $row['extra_id']))
             ->first();
 
         if ($hours === null) {
             if ($entry) {
-                $this->delete($entry);
+                $this->delete($entry, $user);
             }
 
             return null;
@@ -71,27 +76,36 @@ class SaveTimesheetEntryAction
                 ]);
 
                 $this->audit->log('insert', 'timesheet_entries', $entry->id, after: $entry->snapshot());
+            } else {
+                $before = $entry->snapshot();
+                $entry->update(['hours' => $hours, 'note' => $note]);
 
-                return $entry;
+                $this->audit->log('update', 'timesheet_entries', $entry->id, before: $before, after: $entry->snapshot());
             }
 
-            $before = $entry->snapshot();
-            $entry->update(['hours' => $hours, 'note' => $note]);
-
-            $this->audit->log('update', 'timesheet_entries', $entry->id, before: $before, after: $entry->snapshot());
+            $this->syncExtra($entry, $user);
 
             return $entry;
         });
     }
 
-    public function delete(TimesheetEntry $entry): void
+    public function delete(TimesheetEntry $entry, ?User $user = null): void
     {
-        DB::transaction(function () use ($entry) {
+        DB::transaction(function () use ($entry, $user) {
             $before = $entry->snapshot();
             $entry->delete();
 
             $this->audit->log('delete', 'timesheet_entries', $before['id'], before: $before);
+
+            $this->syncExtra($entry, $user ?? $entry->user);
         });
+    }
+
+    protected function syncExtra(TimesheetEntry $entry, User $user): void
+    {
+        if ($entry->extra_id !== null && $entry->extra) {
+            $this->syncExtraHours->execute($user, $entry->extra, CarbonImmutable::parse($entry->work_date));
+        }
     }
 
     /** Hours as a decimal string, or null for a blank or zero cell. */
@@ -128,7 +142,7 @@ class SaveTimesheetEntryAction
         return number_format($hours, 2, '.', '');
     }
 
-    /** @return array{category: TimeCategory, job_number: ?string, phase_code: ?string} */
+    /** @return array{category: TimeCategory, job_number: ?string, phase_code: ?string, extra_id: ?int} */
     protected function validatedRow(string $rowKey): array
     {
         try {
@@ -138,7 +152,7 @@ class SaveTimesheetEntryAction
         }
 
         if (! $row['category']->needsProject()) {
-            return [...$row, 'job_number' => null, 'phase_code' => null];
+            return [...$row, 'job_number' => null, 'phase_code' => null, 'extra_id' => null];
         }
 
         if ($row['job_number'] === null || ! Project::whereKey($row['job_number'])->exists()) {
@@ -147,6 +161,20 @@ class SaveTimesheetEntryAction
 
         if ($row['phase_code'] !== null && ! in_array($row['phase_code'], [...Phase::codes(), Phase::Hours], true)) {
             throw ValidationException::withMessages(['timesheet' => __('Unknown phase :phase.', ['phase' => $row['phase_code']])]);
+        }
+
+        if ($row['extra_id'] !== null) {
+            $extra = Extra::find($row['extra_id']);
+
+            if ($extra === null || $extra->job_number !== $row['job_number']) {
+                throw ValidationException::withMessages(['timesheet' => __('That extra is not on this project.')]);
+            }
+
+            if ($extra->status !== 'active') {
+                throw ValidationException::withMessages(['timesheet' => __(':extra is :status, so time can no longer go against it.', ['extra' => $extra->label(), 'status' => $extra->status])]);
+            }
+
+            $row['phase_code'] = Phase::Hours;
         }
 
         return $row;

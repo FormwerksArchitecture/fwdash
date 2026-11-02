@@ -2,12 +2,15 @@
 
 namespace App\Livewire\MonthEnd;
 
+use App\Actions\Billing\ConfirmHourLinesAction;
 use App\Actions\Billing\SetPeriodStatusAction;
 use App\Billing\BillingEngine;
 use App\Billing\PeriodReports;
 use App\Billing\Spending;
 use App\Enums\Permission;
 use App\Livewire\Concerns\SortsRows;
+use App\Models\Extra;
+use App\Models\HourLine;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\Computed;
@@ -21,10 +24,15 @@ use Livewire\Component;
  * is aged against the period end. Hours come from the hours table alone.
  * Spent is the Costs sheet total for the month, or failing that staff time at
  * cost (managers and admins), and Profit is the month's billing less it.
+ *
+ * A job's row opens in place before its page: the month's draws, where the
+ * contract stands, and the month's hourly lines. Time logged on timesheets
+ * against an extra waits there unconfirmed, billing nothing until confirmed.
  */
 /**
  * @property-read array<string, mixed> $figures
  * @property-read Collection<int, array<string, mixed>> $rows
+ * @property-read ?array<string, mixed> $detail
  */
 #[Title('Month End')]
 class MonthEndReport extends Component
@@ -42,6 +50,9 @@ class MonthEndReport extends Component
 
     #[Url]
     public string $direction = 'asc';
+
+    /** The job whose row is open. */
+    public ?string $expanded = null;
 
     /** @var array<int, string> */
     protected array $textColumns = ['jobName', 'developer'];
@@ -65,6 +76,34 @@ class MonthEndReport extends Component
         if ($month && $month['period']) {
             $this->period = $month['period'];
         }
+    }
+
+    public function toggleJob(string $jobNumber): void
+    {
+        $this->expanded = $this->expanded === $jobNumber ? null : $jobNumber;
+    }
+
+    /** @param  array<int, int>  $lineIds */
+    public function confirmLines(array $lineIds, bool $confirmed, ConfirmHourLinesAction $confirmHourLines): void
+    {
+        $this->authorize(Permission::EditBilling->value);
+
+        if (! $this->period || ! $this->expanded) {
+            return;
+        }
+
+        // Only the open job's lines for this month, whatever ids come in.
+        $lineIds = HourLine::whereKey($lineIds)
+            ->where('job_number', $this->expanded)
+            ->whereDate('period', $this->period)
+            ->pluck('id')
+            ->all();
+
+        $confirmHourLines->execute($lineIds, $confirmed);
+
+        // A confirmed line bills, so the month's figures move with it.
+        app(BillingEngine::class)->load();
+        unset($this->figures, $this->rows, $this->detail);
     }
 
     public function closePeriod(SetPeriodStatusAction $setPeriodStatus): void
@@ -113,6 +152,27 @@ class MonthEndReport extends Component
     public function rows(): Collection
     {
         return $this->sortRows($this->figures['rows'] ?? collect());
+    }
+
+    /** @return ?array<string, mixed> */
+    #[Computed]
+    public function detail(): ?array
+    {
+        $row = $this->expanded ? $this->rows->firstWhere('jobNumber', $this->expanded) : null;
+
+        if (! $row) {
+            return null;
+        }
+
+        $grid = app(BillingEngine::class)->periodGrid($this->period, $this->expanded);
+
+        return [
+            'row' => $row,
+            'grid' => $grid,
+            'draws' => collect($grid['phases'])->reject(fn (array $phase) => (float) $phase['billedThisMonth'] == 0)->values(),
+            'lines' => collect($grid['hourLines']),
+            'extras' => Extra::whereKey(array_filter(array_column($grid['hourLines'], 'extraId')))->get()->keyBy('id'),
+        ];
     }
 
     protected function setStatus(SetPeriodStatusAction $setPeriodStatus, string $status): void

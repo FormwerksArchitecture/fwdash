@@ -286,3 +286,30 @@ it('keeps which extra each hourly line is tagged to across uploads', function ()
     expect(HourLine::where('extra_id', $extra->id)->count())->toBe(1)
         ->and(HourLine::whereKeyNot(HourLine::where('extra_id', $extra->id)->value('id'))->whereNotNull('extra_id')->count())->toBe(0);
 });
+
+it('keeps which hourly lines were confirmed across uploads', function () {
+    $importer = app(ImportWorkbookAction::class);
+    $importer->execute(makeWorkbook(), 'first.xlsx');
+
+    $line = HourLine::firstOrFail();
+    $line->forceFill(['confirmed_at' => '2026-07-02 10:00:00', 'confirmed_by' => 'Nathan'])->save();
+
+    $importer->execute(makeWorkbook(), 'second.xlsx');
+
+    expect(HourLine::where('confirmed_by', 'Nathan')->get(['job_number', 'staff'])->toArray())
+        ->toBe([['job_number' => $line->job_number, 'staff' => $line->staff]])
+        ->and(HourLine::whereNull('confirmed_at')->count())->toBe(0);
+});
+
+it('keeps hourly lines from timesheets through an upload, still unconfirmed', function () {
+    $importer = app(ImportWorkbookAction::class);
+    $importer->execute(makeWorkbook(), 'first.xlsx');
+
+    $extra = Extra::create(['job_number' => '#100', 'title' => 'VE revisions', 'status' => 'active']);
+    HourLine::create(['period' => '2026-06-30', 'job_number' => '#100', 'staff' => 'Tetiana', 'hours' => 3, 'rate' => 145, 'rate_source' => 'timesheet', 'note' => 'VE revisions', 'extra_id' => $extra->id]);
+
+    $importer->execute(makeWorkbook(), 'second.xlsx');
+
+    expect(HourLine::where('rate_source', 'timesheet')->get(['job_number', 'staff', 'extra_id', 'confirmed_at'])->toArray())
+        ->toBe([['job_number' => '#100', 'staff' => 'Tetiana', 'extra_id' => $extra->id, 'confirmed_at' => null]]);
+});

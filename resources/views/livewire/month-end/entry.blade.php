@@ -283,7 +283,9 @@
                                         </td>
                                         <td class="is-num">
                                             {{ Format::money($line['total'], 2) }}
-                                            @if($line['amount'] !== null && (float) $line['amount'] == 0)
+                                            @if($line['confirmedAt'] === null)
+                                                <span class="chip is-warn ml-1" title="{{ __('From a timesheet: confirm it on the Month End report to bill it') }}">{{ __('unconfirmed') }}</span>
+                                            @elseif($line['amount'] !== null && (float) $line['amount'] == 0)
                                                 <span class="chip ml-1">{{ __('not billed') }}</span>
                                             @endif
                                         </td>
@@ -320,7 +322,7 @@
                             </tbody>
                             <tfoot>
                                 @php
-                                    $linesTotal = array_sum(array_map(fn ($line) => (float) $line['total'], $grid['hourLines']));
+                                    $linesTotal = array_sum(array_map(fn ($line) => $line['confirmedAt'] === null ? 0 : (float) $line['total'], $grid['hourLines']));
                                 @endphp
                                 <tr>
                                     <td colspan="4">

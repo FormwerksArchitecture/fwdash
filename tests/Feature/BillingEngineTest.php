@@ -41,7 +41,7 @@ it('bills a percentage of the fee as it stood when the month was billed', functi
 
 it('lets a typed amount win and an hourly override replace the lines', function () {
     DB::table('month_entries')->insert(['period' => '2026-05-31', 'job_number' => '#1', 'phase_code' => 'CA', 'pct_complete' => null, 'amount' => 1500, 'fee_at_entry' => 10000]);
-    DB::table('hour_lines')->insert(['period' => '2026-05-31', 'job_number' => '#1', 'staff' => 'Adam', 'hours' => 10, 'rate' => 145]);
+    DB::table('hour_lines')->insert(['period' => '2026-05-31', 'job_number' => '#1', 'staff' => 'Adam', 'hours' => 10, 'rate' => 145, 'confirmed_at' => now()]);
     DB::table('month_hourly')->insert(['period' => '2026-05-31', 'job_number' => '#1', 'amount' => 1000]);
 
     $totals = app(BillingEngine::class)->jobPeriodTotals('#1', '2026-05-31');

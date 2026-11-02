@@ -163,7 +163,7 @@
         @include('reports.partials.rate-legend')
 
         <div class="card p-0">
-            <div class="overflow-x-auto">
+            <div class="@container overflow-x-auto">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -180,8 +180,9 @@
                     </thead>
                     <tbody>
                         @forelse($rows as $row)
-                            <tr class="is-link" wire:key="me-{{ $row['jobNumber'] }}" title="{{ __('Open :job', ['job' => $row['jobName']]) }}" onclick="Livewire.navigate('{{ route('projects.show', $row['jobNumber']) }}')">
-                                <td><b class="font-medium text-ink">{{ $row['jobName'] }}</b> <span class="text-xs text-muted">{{ $row['jobNumber'] }}</span></td>
+                            @php $open = $expanded === $row['jobNumber']; @endphp
+                            <tr @class(['is-link', 'bg-[#f7f8f9]' => $open]) wire:key="me-{{ $row['jobNumber'] }}" title="{{ $open ? __('Hide details') : __('Show details for :job', ['job' => $row['jobName']]) }}" wire:click="toggleJob('{{ $row['jobNumber'] }}')" aria-expanded="{{ $open ? 'true' : 'false' }}">
+                                <td><i @class(['ph ph-caret-right mr-1 text-[0.65rem] text-muted transition-transform', 'rotate-90' => $open])></i><b class="font-medium text-ink">{{ $row['jobName'] }}</b> <span class="text-xs text-muted">{{ $row['jobNumber'] }}</span></td>
                                 <td class="is-num">{!! $row['hoursMonth'] ? e(Format::number($row['hoursMonth'])) : '<span class="empty">—</span>' !!}</td>
                                 <td class="is-num">{!! $row['billedMonth'] ? e(Format::compact($row['billedMonth'])) : '<span class="empty">—</span>' !!}</td>
                                 <td class="is-num"><x-rate-chip :rate="$row['rateLive']" :hours="$row['hoursLive']" /></td>
@@ -210,6 +211,9 @@
                                     @endif
                                 </td>
                             </tr>
+                            @if($open && $this->detail)
+                                @include('livewire.month-end.partials.job-detail', ['detail' => $this->detail])
+                            @endif
                         @empty
                             <tr><td colspan="9" class="py-10 text-center text-muted">{{ __('Nothing in this group.') }}</td></tr>
                         @endforelse

@@ -511,7 +511,7 @@ Object.assign(charts, {
  * goes to Livewire's addRow through newRow.
  */
 document.addEventListener('alpine:init', () => {
-    window.Alpine.data('rowPicker', ({ groups, categories, phases }) => ({
+    window.Alpine.data('rowPicker', ({ groups, categories, phases, extras = {} }) => ({
         categories,
         open: false,
         query: '',
@@ -528,15 +528,22 @@ document.addEventListener('alpine:init', () => {
             const terms = this.query.trim().toLowerCase().split(/\s+/).filter(Boolean);
             const matches = (text) => terms.every((term) => text.toLowerCase().includes(term));
 
+            // A project's active extras come first: time on them bills as hourly once confirmed.
             if (this.project) {
                 return [
                     {
-                        label: '',
+                        label: 'Extras',
+                        items: (extras[this.project.job] ?? [])
+                            .filter((extra) => matches(extra.name))
+                            .map((extra) => ({ key: `extra:${extra.id}`, name: extra.name, meta: 'Hourly extra', extra: extra.id })),
+                    },
+                    {
+                        label: 'Phases',
                         items: phases
                             .filter((phase) => matches(`${phase.code} ${phase.name}`))
                             .map((phase) => ({ key: `phase:${phase.code}`, name: phase.name, meta: phase.code, phase: phase.code })),
                     },
-                ];
+                ].filter((section) => section.items.length);
             }
 
             const sections = groups
@@ -580,6 +587,10 @@ document.addEventListener('alpine:init', () => {
                 return this.add({ category: option.category });
             }
 
+            if (this.project && option.extra) {
+                return this.add({ category: 'project', job_number: this.project.job, phase_code: 'Hours', extra_id: option.extra });
+            }
+
             if (this.project) {
                 return this.add({ category: 'project', job_number: this.project.job, phase_code: option.phase });
             }
@@ -611,7 +622,7 @@ document.addEventListener('alpine:init', () => {
 
         async add(row) {
             this.busy = true;
-            this.$wire.newRow = { category: 'project', job_number: '', phase_code: '', ...row };
+            this.$wire.newRow = { category: 'project', job_number: '', phase_code: '', extra_id: '', ...row };
 
             try {
                 await this.$wire.addRow();

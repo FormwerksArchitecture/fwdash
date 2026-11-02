@@ -6,6 +6,7 @@ use App\Actions\Timesheets\SaveTimesheetEntryAction;
 use App\Enums\Permission;
 use App\Enums\Phase;
 use App\Enums\TimeCategory;
+use App\Models\Extra;
 use App\Models\Project;
 use App\Models\TimesheetEntry;
 use App\Models\User;
@@ -58,8 +59,8 @@ class Timesheet extends Component
     /** @var array<int, string> Rows added this week that have no hours yet. */
     public array $extraRows = [];
 
-    /** @var array{category: string, job_number: string, phase_code: string} */
-    public array $newRow = ['category' => 'project', 'job_number' => '', 'phase_code' => ''];
+    /** @var array{category: string, job_number: string, phase_code: string, extra_id: string|int} */
+    public array $newRow = ['category' => 'project', 'job_number' => '', 'phase_code' => '', 'extra_id' => ''];
 
     public bool $editingCell = false;
 
@@ -143,9 +144,10 @@ class Timesheet extends Component
 
         $projects = Project::whereIn('job_number', $keys->map(fn (string $key) => TimesheetEntry::parseRowKey($key)['job_number'])->filter())
             ->pluck('job_name', 'job_number');
+        $extras = Extra::whereKey($keys->map(fn (string $key) => TimesheetEntry::parseRowKey($key)['extra_id'])->filter())->get()->keyBy('id');
 
         return $keys
-            ->map(function (string $key) use ($projects) {
+            ->map(function (string $key) use ($projects, $extras) {
                 $row = TimesheetEntry::parseRowKey($key);
                 $cells = $this->entries
                     ->filter(fn (TimesheetEntry $entry) => $entry->rowKey() === $key)
@@ -156,7 +158,8 @@ class Timesheet extends Component
                     'category' => $row['category'],
                     'jobNumber' => $row['job_number'],
                     'jobName' => $row['job_number'] ? ($projects[$row['job_number']] ?? __('Unknown project')) : null,
-                    'phase' => $row['phase_code'],
+                    'phase' => $row['extra_id'] ? ($extras[$row['extra_id']]?->label() ?? __('Unknown extra')) : $row['phase_code'],
+                    'isExtra' => $row['extra_id'] !== null,
                     'cells' => $cells,
                     'total' => (float) $cells->sum('hours'),
                 ];
@@ -267,19 +270,26 @@ class Timesheet extends Component
             'newRow.category' => ['required', Rule::enum(TimeCategory::class)],
             'newRow.job_number' => [Rule::requiredIf($this->newRow['category'] === TimeCategory::Project->value), 'nullable', 'string', Rule::exists('projects', 'job_number')],
             'newRow.phase_code' => ['nullable', 'string', Rule::in([...Phase::codes(), Phase::Hours])],
+            'newRow.extra_id' => ['nullable', 'integer', Rule::exists('extras', 'id')->where('job_number', $this->newRow['job_number'])->where('status', 'active')],
         ], attributes: [
             'newRow.job_number' => __('project'),
             'newRow.phase_code' => __('phase'),
         ])['newRow'];
 
         $category = TimeCategory::from($validated['category']);
+        $extraId = filled($validated['extra_id'] ?? null) ? (int) $validated['extra_id'] : null;
         $key = $category->needsProject()
-            ? TimesheetEntry::makeRowKey($category, $validated['job_number'], $validated['phase_code'] ?: null)
+            ? TimesheetEntry::makeRowKey(
+                $category,
+                $validated['job_number'],
+                $extraId ? Phase::Hours : ($validated['phase_code'] ?: null),
+                $extraId,
+            )
             : TimesheetEntry::makeRowKey($category, null, null);
 
         $this->keepRow($key);
 
-        $this->newRow = ['category' => TimeCategory::Project->value, 'job_number' => '', 'phase_code' => ''];
+        $this->newRow = ['category' => TimeCategory::Project->value, 'job_number' => '', 'phase_code' => '', 'extra_id' => ''];
         unset($this->rows);
     }
 
@@ -368,7 +378,7 @@ class Timesheet extends Component
      * group carry their type beside the job number.
      *
      * @param  Collection<string, Collection<int, Project>>  $projectGroups
-     * @return array{groups: array<int, array<string, mixed>>, categories: array<int, array<string, string>>, phases: array<int, array<string, string>>}
+     * @return array{groups: array<int, array<string, mixed>>, categories: array<int, array<string, string>>, phases: array<int, array<string, string>>, extras: array<string, array<int, array{id: int, name: string}>>}
      */
     protected function picker(Collection $projectGroups): array
     {
@@ -394,6 +404,14 @@ class Timesheet extends Component
                 ['code' => '', 'name' => __('No particular phase')],
                 ...array_map(fn (string $code) => ['code' => $code, 'name' => ProjectTemplates::Names[$code] ?? $code], [...Phase::codes(), Phase::Hours]),
             ],
+            // Extras an admin has made active on the Extras page, by project.
+            'extras' => Extra::where('status', 'active')
+                ->orderBy('code')
+                ->orderBy('title')
+                ->get()
+                ->groupBy('job_number')
+                ->map(fn (Collection $extras) => $extras->map(fn (Extra $extra) => ['id' => $extra->id, 'name' => $extra->label()])->values()->all())
+                ->all(),
         ];
     }
 

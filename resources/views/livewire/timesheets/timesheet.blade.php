@@ -161,7 +161,9 @@
                             <td class="whitespace-normal">
                                 @if($row['jobNumber'])
                                     <span class="block truncate font-medium text-ink" title="{{ $row['jobName'] }}">{{ $row['jobName'] }}</span>
-                                    <span class="block truncate text-xs text-muted">{{ collect([$row['jobNumber'], $row['phase']])->filter()->join(' · ') }}</span>
+                                    <span class="block truncate text-xs text-muted">
+                                        @if($row['isExtra'])<span class="chip is-info mr-1 py-0! text-[0.65rem]">{{ __('Extra') }}</span>@endif{{ collect([$row['jobNumber'], $row['phase']])->filter()->join(' · ') }}
+                                    </span>
                                 @else
                                     <span class="font-medium text-ink">{{ $row['category']->label() }}</span>
                                     @if($row['category']->isTimeOff())

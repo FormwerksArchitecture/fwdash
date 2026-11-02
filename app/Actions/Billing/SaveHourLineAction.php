@@ -12,7 +12,8 @@ use Illuminate\Validation\ValidationException;
 /*
  * Time and materials. The rate is stored on the line: when none is typed the
  * rate table supplies a default and the line records where it came from. A
- * typed amount replaces hours x rate (0 means worked, not billed).
+ * typed amount replaces hours x rate (0 means worked, not billed). A line
+ * typed here is confirmed by whoever typed it, so it bills at once.
  */
 class SaveHourLineAction
 {
@@ -40,7 +41,13 @@ class SaveHourLineAction
 
         return DB::transaction(function () use ($period, $jobNumber, $values, $line) {
             if (! $line) {
-                $line = HourLine::create([...$values, 'period' => $period, 'job_number' => $jobNumber]);
+                $line = HourLine::create([
+                    ...$values,
+                    'period' => $period,
+                    'job_number' => $jobNumber,
+                    'confirmed_at' => now(),
+                    'confirmed_by' => auth()->user()->name ?? 'system',
+                ]);
 
                 $this->audit->log('insert', 'hour_lines', $line->id, after: [
                     'period' => $period,

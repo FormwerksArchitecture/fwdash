@@ -2,6 +2,7 @@
 
 namespace App\Imports;
 
+use App\Actions\Timesheets\SyncExtraHoursAction;
 use App\Enums\Phase;
 use App\Models\MonthlyCost;
 use App\Support\Money;
@@ -36,6 +37,9 @@ class DashboardWorkbookImporter
 
     protected const HourlyTotalMarker = '(hourly total)';
 
+    /** The workbook's hourly lines bill as they stand: they come in confirmed, at this time. */
+    protected string $importedAt;
+
     /** @var array<string, array<int|string, array<string, mixed>>> */
     protected array $rows = [];
 
@@ -51,7 +55,10 @@ class DashboardWorkbookImporter
     /** @var array{lines: array<int, array<string, mixed>>, notes: array<int, array<string, string>>, months: int}|null Null when the workbook has no Costs sheet, so the last costs stay. */
     protected ?array $costs = null;
 
-    public function __construct(protected string $path) {}
+    public function __construct(protected string $path)
+    {
+        $this->importedAt = now()->toDateTimeString();
+    }
 
     public function import(): WorkbookImportResult
     {
@@ -64,6 +71,8 @@ class DashboardWorkbookImporter
         DB::transaction(function () use ($businessDevelopment, &$businessDevelopmentCounts) {
             $preservedNotes = $this->preservedNotes();
             $preservedTags = $this->preservedTags();
+            $preservedConfirmations = $this->preservedConfirmations();
+            $timesheetLines = $this->timesheetLines();
 
             foreach (self::ReplacedTables as $table) {
                 DB::table($table)->delete();
@@ -77,6 +86,8 @@ class DashboardWorkbookImporter
 
             $this->restoreNotes($preservedNotes);
             $this->restoreTags($preservedTags);
+            $this->restoreTimesheetLines($timesheetLines);
+            $this->restoreConfirmations($preservedConfirmations);
 
             if ($this->costs !== null) {
                 DB::table('monthly_cost_notes')->delete();
@@ -344,6 +355,8 @@ class DashboardWorkbookImporter
                 'amount' => $typedAmount ? $total : null,
                 'rate_source' => 'imported',
                 'note' => $this->text($row['Notes'] ?? null),
+                'confirmed_at' => $this->importedAt,
+                'confirmed_by' => 'Workbook upload',
             ];
         }
 
@@ -633,6 +646,69 @@ class DashboardWorkbookImporter
             ->filter(fn (object $line) => isset($tags[$this->lineKey($line)]))
             ->groupBy(fn (object $line) => $tags[$this->lineKey($line)])
             ->each(fn ($lines, int $extraId) => DB::table('hour_lines')->whereIn('id', $lines->pluck('id'))->update(['extra_id' => $extraId]));
+    }
+
+    /**
+     * The hourly lines timesheets wrote. The workbook does not carry them, so
+     * they are lifted out before its billing goes in and put back after.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function timesheetLines(): array
+    {
+        return DB::table('hour_lines')
+            ->where('rate_source', SyncExtraHoursAction::RateSource)
+            ->get()
+            ->map(fn (object $line) => collect((array) $line)->except('id')->all())
+            ->all();
+    }
+
+    /** @param  array<int, array<string, mixed>>  $lines */
+    protected function restoreTimesheetLines(array $lines): void
+    {
+        foreach ($lines as $line) {
+            if (! isset($this->jobNumbers[$line['job_number']])) {
+                $this->warn(__('Timesheet hours for :job were dropped: the workbook no longer has that project.', ['job' => $line['job_number']]));
+
+                continue;
+            }
+
+            DB::table('hour_lines')->insert($line);
+        }
+    }
+
+    /**
+     * Which hourly lines were confirmed on Month End, and by whom. A line keeps
+     * its confirmation only while its rate and amount are unchanged too, so a
+     * line the workbook has altered comes back to be checked again.
+     *
+     * @return array<string, array{confirmed_at: string, confirmed_by: ?string}>
+     */
+    protected function preservedConfirmations(): array
+    {
+        return DB::table('hour_lines')
+            ->whereNotNull('confirmed_at')
+            ->get()
+            ->mapWithKeys(fn (object $line) => [$this->confirmationKey($line) => ['confirmed_at' => $line->confirmed_at, 'confirmed_by' => $line->confirmed_by]])
+            ->all();
+    }
+
+    /** @param  array<string, array{confirmed_at: string, confirmed_by: ?string}>  $confirmations */
+    protected function restoreConfirmations(array $confirmations): void
+    {
+        if ($confirmations === []) {
+            return;
+        }
+
+        DB::table('hour_lines')
+            ->get()
+            ->filter(fn (object $line) => isset($confirmations[$this->confirmationKey($line)]))
+            ->each(fn (object $line) => DB::table('hour_lines')->where('id', $line->id)->update($confirmations[$this->confirmationKey($line)]));
+    }
+
+    protected function confirmationKey(object $line): string
+    {
+        return implode('|', [$this->lineKey($line), $line->rate === null ? '' : Money::round($line->rate), $line->amount === null ? '' : Money::round($line->amount)]);
     }
 
     protected function lineKey(object $line): string

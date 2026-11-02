@@ -41,8 +41,19 @@ class BillingEngine
     /** @var array<string, array<int, array<string, mixed>>> */
     protected array $entries = [];
 
-    /** @var array<string, array<int, array<string, mixed>>> */
+    /**
+     * Confirmed hour lines, the only ones that bill.
+     *
+     * @var array<string, array<int, array<string, mixed>>>
+     */
     protected array $hourLines = [];
+
+    /**
+     * Hour lines waiting to be confirmed on Month End: shown, never billed.
+     *
+     * @var array<string, array<int, array<string, mixed>>>
+     */
+    protected array $pendingLines = [];
 
     /** @var array<string, string> keyed "period|job" */
     protected array $hourlyOverrides = [];
@@ -112,7 +123,8 @@ class BillingEngine
                 $this->entryIndex["{$entry['period']}|{$jobNumber}|{$entry['phase_code']}"] = $entry;
             }
         }
-        $this->hourLines = $this->groupByJob(DB::table('hour_lines')->orderBy('id')->get());
+        $this->hourLines = $this->groupByJob(DB::table('hour_lines')->whereNotNull('confirmed_at')->orderBy('id')->get());
+        $this->pendingLines = $this->groupByJob(DB::table('hour_lines')->whereNull('confirmed_at')->orderBy('id')->get());
         $this->payments = $this->groupByJob(DB::table('payments')->orderBy('paid_on')->orderBy('id')->get(), 'paid_on');
         $this->consultants = $this->groupByJob(DB::table('consultant_fees')->orderBy('period')->orderBy('id')->get());
         $this->hours = $this->groupByJob(DB::table('job_hours')->orderBy('period')->get());
@@ -814,7 +826,10 @@ class BillingEngine
 
         $lines = [];
 
-        foreach ($this->hourLines[$jobNumber] ?? [] as $line) {
+        // Confirmed lines bill; pending ones are listed beside them to be confirmed.
+        $periodLines = collect([...$this->hourLines[$jobNumber] ?? [], ...$this->pendingLines[$jobNumber] ?? []])->sortBy('id');
+
+        foreach ($periodLines as $line) {
             if ($line['period'] !== $period) {
                 continue;
             }
@@ -832,6 +847,9 @@ class BillingEngine
                 'resolvedRateSource' => $source,
                 'total' => $this->lineTotal($line),
                 'note' => $line['note'],
+                'extraId' => isset($line['extra_id']) ? (int) $line['extra_id'] : null,
+                'confirmedAt' => $line['confirmed_at'] ?? null,
+                'confirmedBy' => $line['confirmed_by'] ?? null,
             ];
         }
 
