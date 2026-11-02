@@ -91,6 +91,7 @@ class ProjectsShow extends Component
 
         $this->details = $this->project->only(['job_name', 'developer', 'division', 'project_lead', 'ca_per_month', 'ifc_date', 'active']);
         $this->details['ifc_date'] = $this->project->ifc_date?->format('Y-m-d');
+        $this->details['target_profit'] = $this->project->target_profit === null ? null : round((float) $this->project->target_profit * 100, 2);
         $this->editingDetails = true;
     }
 
@@ -104,13 +105,33 @@ class ProjectsShow extends Component
             'details.division' => ['nullable', 'string', 'max:20'],
             'details.project_lead' => ['nullable', 'string', 'max:255'],
             'details.ca_per_month' => ['nullable', 'numeric', 'min:0'],
+            'details.target_profit' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'details.ifc_date' => ['nullable', 'date'],
             'details.active' => ['boolean'],
-        ])['details'];
+        ], attributes: ['details.target_profit' => __('target profit')])['details'];
+
+        // Typed as a percentage, kept as a fraction.
+        $validated['target_profit'] = filled($validated['target_profit'] ?? null) ? (float) $validated['target_profit'] / 100 : null;
 
         $saveProject->execute($validated, $this->project);
 
         $this->editingDetails = false;
+        $this->refreshFigures();
+    }
+
+    /** The Profitability card's box: a percentage of the fees. */
+    public function saveTargetProfit(?string $value, SaveProjectAction $saveProject): void
+    {
+        $this->authorize(Permission::EditBilling->value);
+
+        $value = trim(str_replace('%', '', (string) $value));
+
+        if (! is_numeric($value) || (float) $value < 0 || (float) $value > 100) {
+            throw ValidationException::withMessages(['target_profit' => __('A target profit is a percentage from 0 to 100.')]);
+        }
+
+        $saveProject->execute(['target_profit' => (float) $value / 100], $this->project);
+
         $this->refreshFigures();
     }
 

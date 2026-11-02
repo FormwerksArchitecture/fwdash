@@ -717,14 +717,15 @@ class DashboardWorkbookImporter
     }
 
     /**
-     * Notes typed in this app that the workbook does not carry.
+     * Notes and target profits typed in this app that the workbook does not carry.
      *
-     * @return array{projects: array<string, string>, fees: array<string, string>}
+     * @return array{projects: array<string, string>, targets: array<string, string>, fees: array<string, string>}
      */
     protected function preservedNotes(): array
     {
         return [
             'projects' => DB::table('projects')->whereNotNull('notes')->pluck('notes', 'job_number')->all(),
+            'targets' => DB::table('projects')->whereNotNull('target_profit')->pluck('target_profit', 'job_number')->all(),
             'fees' => DB::table('project_phase_fees')
                 ->whereNotNull('note')
                 ->get()
@@ -733,11 +734,15 @@ class DashboardWorkbookImporter
         ];
     }
 
-    /** @param array{projects: array<string, string>, fees: array<string, string>} $notes */
+    /** @param array{projects: array<string, string>, targets: array<string, string>, fees: array<string, string>} $notes */
     protected function restoreNotes(array $notes): void
     {
         foreach ($notes['projects'] as $jobNumber => $note) {
             DB::table('projects')->where('job_number', $jobNumber)->update(['notes' => $note]);
+        }
+
+        foreach ($notes['targets'] as $jobNumber => $target) {
+            DB::table('projects')->where('job_number', $jobNumber)->update(['target_profit' => $target]);
         }
 
         foreach ($notes['fees'] as $key => $note) {

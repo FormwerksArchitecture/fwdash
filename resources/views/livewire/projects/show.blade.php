@@ -11,6 +11,27 @@
     $billed = (float) $s['billed'];
     $scale = max($feeTotal, $billed) ?: 1;
     $amended = collect($this->fees)->where('billedAtOtherFee', '>', 0)->count();
+    // Each phase may spend its fee less the project's target profit.
+    $target = $project->target_profit === null ? null : (float) $project->target_profit;
+    $spendShare = 1 - ($target ?? 0);
+
+    // The whole job, on the same footing as the phase table: phases with a fee.
+    $feePhases = collect($this->fees)->filter(fn ($fee) => (float) $fee['fee'] > 0);
+    $feeSpent = collect($spentByPhase)->only($feePhases->pluck('phase')->all())->sum('spent');
+    $budgetTotal = $feeTotal * $spendShare;
+    $earned = $feePhases->sum(fn ($fee) => (float) $fee['fee'] * min(1, (float) $fee['pctComplete']));
+    $complete = $feeTotal ? $earned / $feeTotal : null;
+    $budgetUsed = $budgetTotal > 0 ? $feeSpent / $budgetTotal : null;
+    $profitSoFar = $earned - $feeSpent;
+    // At the pace so far, the job spends spent ÷ complete in all.
+    $forecastSpend = $complete ? $feeSpent / $complete : null;
+    $forecastMargin = $forecastSpend !== null && $feeTotal ? ($feeTotal - $forecastSpend) / $feeTotal : null;
+    $marginTone = match (true) {
+        $forecastMargin === null => 'text-ink',
+        $forecastMargin < 0 => 'text-over',
+        $target !== null && $forecastMargin < $target => 'text-[#a7781c]',
+        default => 'text-positive',
+    };
 @endphp
 
 <div class="space-y-8">
@@ -90,6 +111,14 @@
                     <input type="number" step="0.01" min="0" wire:model="details.ca_per_month" class="field-input">
                 </div>
                 <div>
+                    <label class="field-label">{{ __('Target profit') }}</label>
+                    <div class="relative">
+                        <input type="number" step="0.5" min="0" max="100" wire:model="details.target_profit" class="field-input pr-8" placeholder="25">
+                        <span class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted">%</span>
+                    </div>
+                    @error('details.target_profit') <p class="error-note mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div>
                     <label class="field-label">{{ __('IFC date') }}</label>
                     <input type="date" wire:model="details.ifc_date" class="field-input">
                 </div>
@@ -127,6 +156,75 @@
         </x-kpi>
     </div>
 
+    @if($feeTotal > 0)
+        <section class="card">
+            <div class="flex flex-wrap items-start justify-between gap-6">
+                <div>
+                    <h2 class="section-title">{{ __('Profitability') }}</h2>
+                    <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                        <label for="target-profit" class="text-ink-2">{{ __('Target profit') }}</label>
+                        @if($canEdit)
+                            <span class="relative">
+                                <input
+                                    id="target-profit"
+                                    wire:key="target-profit-{{ $target }}"
+                                    type="text"
+                                    inputmode="decimal"
+                                    class="field-input w-20 py-1 pr-7 text-right tabular-nums"
+                                    value="{{ $target === null ? '' : rtrim(rtrim(number_format($target * 100, 2, '.', ''), '0'), '.') }}"
+                                    placeholder="20"
+                                    wire:change="saveTargetProfit($event.target.value)"
+                                    x-on:keydown.enter="$event.target.blur()"
+                                >
+                                <span class="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-muted">%</span>
+                            </span>
+                        @else
+                            <b class="font-medium">{{ $target === null ? '—' : Format::pct($target, 1) }}</b>
+                        @endif
+                        <span class="text-xs text-muted">{{ __(':profit of :fees in fees, leaving :budget to spend', ['profit' => Format::money($feeTotal * ($target ?? 0)), 'fees' => Format::money($feeTotal), 'budget' => Format::money($budgetTotal)]) }}</span>
+                    </div>
+                    @error('target_profit') <p class="error-note mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div class="text-right">
+                    <div class="text-xs text-muted">{{ __('Forecast margin') }}</div>
+                    <div class="font-heading text-3xl {{ $marginTone }}">{{ $forecastMargin === null ? '—' : Format::pct($forecastMargin, 1) }}</div>
+                    <div class="text-xs text-muted">
+                        @if($forecastMargin === null)
+                            {{ __('once a phase is under way') }}
+                        @else
+                            {{ __(':profit at the pace so far', ['profit' => Format::money($feeTotal * $forecastMargin)]) }}
+                            @if($target !== null)
+                                · {{ $forecastMargin >= $target ? __('on target') : __(':gap under target', ['gap' => Format::pct($target - $forecastMargin, 1)]) }}
+                            @endif
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+            <dl class="mt-5 grid gap-x-10 gap-y-3 text-sm sm:grid-cols-2">
+                <div>
+                    <dt class="flex justify-between text-ink-2"><span>{{ __('Complete') }}</span><span class="tabular-nums">{{ $complete === null ? '—' : Format::pct($complete) }}</span></dt>
+                    <dd class="mt-1"><span class="bar-track block w-full"><span class="bar-fill" style="width: {{ min(100, ($complete ?? 0) * 100) }}%"></span></span></dd>
+                    <dd class="mt-1 text-xs text-muted">{{ __(':earned of :fees in fees earned', ['earned' => Format::money($earned), 'fees' => Format::money($feeTotal)]) }}</dd>
+                </div>
+                <div>
+                    <dt class="flex justify-between text-ink-2"><span>{{ __('Budget used') }}</span><span @class(['tabular-nums', 'text-over' => $budgetUsed > 1])>{{ $budgetUsed === null ? '—' : Format::pct($budgetUsed) }}</span></dt>
+                    <dd class="mt-1"><span class="bar-track block w-full"><span @class(['bar-fill', 'is-over' => $budgetUsed > 1, 'is-warn' => $budgetUsed !== null && $budgetUsed <= 1 && $complete !== null && $budgetUsed > $complete + 0.005]) style="width: {{ min(100, ($budgetUsed ?? 0) * 100) }}%"></span></span></dd>
+                    <dd @class(['mt-1 text-xs', 'text-over' => $budgetUsed > 1, 'text-muted' => $budgetUsed <= 1])>
+                        {{ __(':spent spent of :budget', ['spent' => Format::money($feeSpent), 'budget' => Format::money($budgetTotal)]) }}
+                        · {{ $budgetUsed > 1 ? __(':amount over', ['amount' => Format::money($feeSpent - $budgetTotal)]) : __(':amount left', ['amount' => Format::money($budgetTotal - $feeSpent)]) }}
+                    </dd>
+                </div>
+            </dl>
+
+            <p class="mt-4 text-xs text-muted">
+                {{ __('Profit so far') }}: <b @class(['font-medium', 'text-over' => $profitSoFar < 0, 'text-ink-2' => $profitSoFar >= 0])>{{ Format::money($profitSoFar) }}</b>
+                @if($earned > 0) ({{ Format::pct($profitSoFar / $earned, 1) }}) @endif
+                {{ __('on the work done. Spent is Mosaic time at charge-out rates on the phases with a fee.') }}
+            </p>
+        </section>
+    @endif
+
     @error('fee') <p class="error-note">{{ $message }}</p> @enderror
     @error('entry') <p class="error-note">{{ $message }}</p> @enderror
     @error('payment') <p class="error-note">{{ $message }}</p> @enderror
@@ -157,7 +255,7 @@
                         <th class="is-num">{{ __('Billed') }}</th>
                         <th class="is-num" title="{{ __('Hours logged in Mosaic, at each person\'s charge-out rate') }}">{{ __('Spent') }}</th>
                         <th>{{ __('Complete') }}</th>
-                        <th class="is-num">{{ __('Left') }}</th>
+                        <th title="{{ __('Spent against the phase\'s budget: its fee less the target profit') }}">{{ __('Budget used') }}</th>
                         <th>{{ __('Note') }}</th>
                     </tr>
                 </thead>
@@ -196,7 +294,21 @@
                                     </span>
                                 @endif
                             </td>
-                            <td class="is-num">{{ (float) $fee['fee'] ? Format::money($fee['balance']) : '—' }}</td>
+                            <td>
+                                @php
+                                    $budget = (float) $fee['fee'] * $spendShare;
+                                    $used = $budget > 0 ? ($spent['spent'] ?? 0) / $budget : null;
+                                @endphp
+                                @if($used !== null)
+                                    <span class="inline-flex items-center gap-2" title="{{ __('Budget :budget: the :fee fee less :pct target profit', ['budget' => Format::money($budget), 'fee' => Format::money($fee['fee']), 'pct' => Format::pct($target ?? 0, 1)]) }}">
+                                        <span class="bar-track w-20"><span @class(['bar-fill', 'is-over' => $used > 1, 'is-warn' => $used <= 1 && $fee['pctComplete'] !== null && $used > $fee['pctComplete'] + 0.005]) style="width: {{ min(100, $used * 100) }}%"></span></span>
+                                        <span @class(['text-xs', 'text-over' => $used > 1])>{{ Format::pct($used) }}</span>
+                                    </span>
+                                    <small @class(['block text-muted', 'text-over!' => $used > 1])>{{ $used > 1 ? __(':amount over', ['amount' => Format::money($budget * ($used - 1))]) : __(':amount left', ['amount' => Format::money($budget * (1 - $used))]) }}</small>
+                                @else
+                                    <span class="text-muted">—</span>
+                                @endif
+                            </td>
                             <td class="text-xs text-muted">
                                 @if($fee['billedAtOtherFee'])
                                     <span class="text-warning" title="{{ trans_choice(':count earlier month was billed against a different fee|:count earlier months were billed against a different fee', $fee['billedAtOtherFee']) }}">
@@ -240,7 +352,6 @@
                         <td class="is-num">{{ Format::money($feeTotal) }}</td>
                         <td class="is-num">{{ Format::money($billed) }}</td>
                         <td class="is-num">
-                            @php $feeSpent = collect($spentByPhase)->only(collect($this->fees)->filter(fn ($fee) => (float) $fee['fee'] > 0)->pluck('phase')->all())->sum('spent'); @endphp
                             @if($feeSpent)
                                 <span @class(['text-over' => $feeSpent > $feeTotal])>{{ Format::money($feeSpent) }}</span>
                             @else
@@ -248,7 +359,13 @@
                             @endif
                         </td>
                         <td></td>
-                        <td class="is-num">{{ Format::money(max(0, $feeTotal - $billed)) }}</td>
+                        <td>
+                            @if($budgetTotal > 0)
+                                <span @class(['text-xs', 'text-over' => $feeSpent > $budgetTotal])>
+                                    {{ Format::pct($feeSpent / $budgetTotal) }} {{ __('of') }} {{ Format::money($budgetTotal) }}
+                                </span>
+                            @endif
+                        </td>
                         <td class="text-xs font-normal text-muted">{{ $amended ? trans_choice(':count phase amended since billing|:count phases amended since billing', $amended) : '' }}</td>
                     </tr>
                 </tfoot>

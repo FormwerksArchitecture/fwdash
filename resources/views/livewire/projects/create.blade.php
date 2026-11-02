@@ -110,6 +110,15 @@
                         @error('basics.ca_per_month') <p class="error-note mt-1">{{ $message }}</p> @enderror
                     </div>
                     <div>
+                        <label class="field-label" for="target_profit">{{ __('Target profit') }}</label>
+                        <div class="relative">
+                            <input id="target_profit" type="number" step="0.5" min="0" max="100" wire:model.blur="basics.target_profit" class="field-input pr-8" placeholder="25">
+                            <span class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted">%</span>
+                        </div>
+                        <p class="mt-1 text-xs text-muted">{{ __('Of the fees. Each phase gets the rest to spend.') }}</p>
+                        @error('basics.target_profit') <p class="error-note mt-1">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
                         <label class="field-label" for="ifc_date">{{ __('Target IFC date') }}</label>
                         <input id="ifc_date" type="date" wire:model.blur="basics.ifc_date" class="field-input">
                     </div>
@@ -500,6 +509,7 @@
                         </div>
                         <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                             <dt class="text-muted">{{ __('CA per month') }}</dt><dd>{{ $basics['ca_per_month'] !== '' ? Format::money($basics['ca_per_month'], 2) : '—' }}</dd>
+                            <dt class="text-muted">{{ __('Target profit') }}</dt><dd>{{ $basics['target_profit'] !== '' ? Format::pct((float) $basics['target_profit'] / 100, 1) : '—' }}</dd>
                             <dt class="text-muted">{{ __('Target IFC') }}</dt><dd>{{ $basics['ifc_date'] ? Format::date($basics['ifc_date']) : '—' }}</dd>
                             <dt class="text-muted">{{ __('Rates') }}</dt><dd>{{ implode('-', array_map(fn ($rate) => $rate === '' ? '—' : $rate, $rates)) }}@if($schedule === 'standard') <span class="text-muted">{{ __('standard') }}</span>@endif</dd>
                             <dt class="text-muted">{{ __('Team') }}</dt><dd>{{ $teamNames ? implode(', ', $teamNames) : '—' }}</dd>

@@ -17,11 +17,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property bool $active
  * @property bool $andrew
  * @property ?string $ca_per_month
+ * @property ?string $target_profit the profit it is set to make, as a fraction of its fees
  * @property ?CarbonImmutable $ifc_date
  * @property ?CarbonImmutable $complete_date
  * @property ?string $notes
  */
-#[Fillable(['job_number', 'job_name', 'developer', 'division', 'project_lead', 'active', 'andrew', 'ca_per_month', 'ifc_date', 'complete_date', 'notes'])]
+#[Fillable(['job_number', 'job_name', 'developer', 'division', 'project_lead', 'active', 'andrew', 'ca_per_month', 'target_profit', 'ifc_date', 'complete_date', 'notes'])]
 class Project extends Model
 {
     protected $primaryKey = 'job_number';
@@ -36,6 +37,7 @@ class Project extends Model
             'active' => 'boolean',
             'andrew' => 'boolean',
             'ca_per_month' => 'decimal:2',
+            'target_profit' => 'decimal:4',
             'ifc_date' => 'date:Y-m-d',
             'complete_date' => 'date:Y-m-d',
         ];

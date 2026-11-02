@@ -53,7 +53,7 @@ class ProjectsCreate extends Component
 
     public string $copyFrom = '';
 
-    /** @var array{job_number: string, job_name: string, developer: string, division: string, status: string, ca_per_month: string, ifc_date: string, notes: string, lead: string, pm: string} */
+    /** @var array{job_number: string, job_name: string, developer: string, division: string, status: string, ca_per_month: string, target_profit: string, ifc_date: string, notes: string, lead: string, pm: string} */
     public array $basics = [
         'job_number' => '',
         'job_name' => '',
@@ -61,6 +61,7 @@ class ProjectsCreate extends Component
         'division' => 'MF',
         'status' => 'active',
         'ca_per_month' => '',
+        'target_profit' => '20',
         'ifc_date' => '',
         'notes' => '',
         'lead' => '',
@@ -333,6 +334,7 @@ class ProjectsCreate extends Component
         $this->basics['developer'] = (string) $project->developer;
         $this->basics['division'] = (string) $project->division;
         $this->basics['ca_per_month'] = $project->ca_per_month === null ? '' : (string) (float) $project->ca_per_month;
+        $this->basics['target_profit'] = $project->target_profit === null ? '' : (string) round((float) $project->target_profit * 100, 2);
         $this->suggestJobNumberIfUntouched($project->division);
         $this->template = ProjectTemplates::forDivision($project->division);
 
@@ -589,12 +591,14 @@ class ProjectsCreate extends Component
                 'basics.division' => ['nullable', 'string', 'max:20'],
                 'basics.status' => ['required', Rule::in(['active', 'paused'])],
                 'basics.ca_per_month' => ['nullable', 'numeric', 'min:0'],
+                'basics.target_profit' => ['nullable', 'numeric', 'min:0', 'max:100'],
                 'basics.ifc_date' => ['nullable', 'date'],
                 'basics.notes' => ['nullable', 'string', 'max:2000'],
             ], attributes: [
                 'basics.job_number' => __('job number'),
                 'basics.job_name' => __('project name'),
                 'basics.ca_per_month' => __('CA per month'),
+                'basics.target_profit' => __('target profit'),
             ]),
             2 => $this->validate([
                 'phases' => ['required', 'array', 'min:1'],

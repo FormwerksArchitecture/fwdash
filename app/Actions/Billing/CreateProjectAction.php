@@ -27,7 +27,7 @@ use Illuminate\Validation\ValidationException;
  *
  * @phpstan-type Setup array{
  *     job_number: string, job_name: string, developer?: ?string, division?: ?string,
- *     status?: string, ca_per_month?: ?string, ifc_date?: ?string, notes?: ?string,
+ *     status?: string, ca_per_month?: ?string, target_profit?: ?string, ifc_date?: ?string, notes?: ?string,
  *     lead?: ?string, pm?: ?string,
  *     phases: array<int, array{name: string, code: string, fee?: ?string, hours?: ?string, start?: ?string, end?: ?string}>,
  *     rates?: array<string, ?string>,
@@ -65,6 +65,8 @@ class CreateProjectAction
                 'division' => $setup['division'] ?? null,
                 'project_lead' => $setup['lead'] ?? null,
                 'ca_per_month' => $setup['ca_per_month'] ?? null,
+                // Typed as a percentage, kept as a fraction; 20% when left blank.
+                'target_profit' => filled($setup['target_profit'] ?? null) ? (float) $setup['target_profit'] / 100 : 0.2,
                 'ifc_date' => $setup['ifc_date'] ?? null,
                 'notes' => $setup['notes'] ?? null,
                 'active' => ($setup['status'] ?? 'active') !== 'closed',

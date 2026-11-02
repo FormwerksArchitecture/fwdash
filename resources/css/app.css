@@ -334,6 +334,10 @@
         @apply absolute inset-y-0 left-0 bg-[#6a7479];
     }
 
+    .bar-fill.is-warn {
+        @apply bg-[#d1a23a];
+    }
+
     .bar-fill.is-over {
         @apply bg-over;
     }

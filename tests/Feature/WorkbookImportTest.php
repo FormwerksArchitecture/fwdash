@@ -313,3 +313,14 @@ it('keeps hourly lines from timesheets through an upload, still unconfirmed', fu
     expect(HourLine::where('rate_source', 'timesheet')->get(['job_number', 'staff', 'extra_id', 'confirmed_at'])->toArray())
         ->toBe([['job_number' => '#100', 'staff' => 'Tetiana', 'extra_id' => $extra->id, 'confirmed_at' => null]]);
 });
+
+it('keeps each project\'s target profit across uploads', function () {
+    $importer = app(ImportWorkbookAction::class);
+    $importer->execute(makeWorkbook(), 'first.xlsx');
+
+    Project::where('job_number', '#100')->update(['target_profit' => 0.3]);
+
+    $importer->execute(makeWorkbook(), 'second.xlsx');
+
+    expect(Project::find('#100')->target_profit)->toBe('0.3000');
+});

@@ -36,6 +36,7 @@ it('sets up a whole job: phases, fee ladder, rates, team, hours and work plans',
         ->set('basics.job_name', '1710 Macdonald St')
         ->set('basics.developer', 'Macdonald Holdings')
         ->set('basics.division', 'MF')
+        ->set('basics.target_profit', '22.5')
         ->call('next')
         ->assertSet('step', 2)
         ->set('template', 'single-family')
@@ -68,6 +69,7 @@ it('sets up a whole job: phases, fee ladder, rates, team, hours and work plans',
     $project = Project::findOrFail('#8200');
     expect($project->job_name)->toBe('1710 Macdonald St')
         ->and($project->project_lead)->toBe('Andrew')
+        ->and($project->target_profit)->toBe('0.2250')
         ->and($project->active)->toBeTrue();
 
     $phases = ProjectPhase::where('job_number', '#8200')->orderBy('seq')->get();
