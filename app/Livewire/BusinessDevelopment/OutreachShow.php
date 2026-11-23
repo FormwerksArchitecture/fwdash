@@ -42,7 +42,7 @@ class OutreachShow extends Component
      * The drafted email as it should go out. Without a direct address for the named contact,
      * it goes to the office inbox with their name in the subject and a line asking for it to be passed on.
      *
-     * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, outlook: ?string}
+     * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, mailto: ?string, outlook: ?string}
      */
     public function email(): ?array
     {
@@ -78,8 +78,15 @@ class OutreachShow extends Component
             'callScript' => $passAlong && ! $office && $this->prospect->phone
                 ? "Hi, I'd like to send a short note to {$name}. What's the best email address to reach {$firstName}?"
                 : null,
+            'mailto' => $to ? self::mailtoUrl($to, $subject, $body) : null,
             'outlook' => $to ? self::outlookComposeUrl($to, $subject, $body) : null,
         ];
+    }
+
+    /** Opens a new message in the computer's mail app (the Outlook app when it is the default), already addressed and written. */
+    public static function mailtoUrl(string $to, string $subject, string $body): string
+    {
+        return 'mailto:'.$to.'?subject='.rawurlencode($subject).'&body='.rawurlencode(str_replace("\n", "\r\n", $body));
     }
 
     /** Opens a new message in Outlook on the web, already addressed and written. Closing it unsent keeps it in Drafts. */

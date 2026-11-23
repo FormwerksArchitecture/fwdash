@@ -100,6 +100,7 @@ it('asks the office inbox to pass the email on until a direct address is saved',
         ->subject->toBe('For Marc Allaire: Stone Ridge, and your next site')
         ->body->toStartWith('Could you please pass this along to Marc?')
         ->linkedinNote->toContain('your hello@ inbox')
+        ->mailto->toBe('mailto:hello@allaire.test?subject=For%20Marc%20Allaire%3A%20Stone%20Ridge%2C%20and%20your%20next%20site&body=Could%20you%20please%20pass%20this%20along%20to%20Marc%3F%20Thank%20you.%0D%0A%0D%0AHi%20Marc%2C')
         ->outlook->toStartWith('https://outlook.office.com/mail/deeplink/compose?to=hello%40allaire.test&subject=For%20Marc%20Allaire%3A%20Stone%20Ridge')
         ->outlook->toContain('&body=Could%20you%20please%20pass%20this%20along%20to%20Marc%3F%20Thank%20you.%0A%0AHi%20Marc%2C');
 

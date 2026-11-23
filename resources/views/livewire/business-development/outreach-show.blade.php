@@ -65,14 +65,19 @@
                 <h2 class="section-title">{{ __('Drafted email') }}</h2>
                 <div class="flex flex-wrap items-center gap-2">
                     {!! $copyButton($email['body'], __('Copy email')) !!}
-                    @if($email['outlook'])
-                        <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="btn"><i class="ph ph-envelope-simple"></i>{{ __('Open in Outlook') }}</a>
+                    @if($email['mailto'])
+                        <a href="{{ $email['mailto'] }}" class="btn"><i class="ph ph-envelope-simple"></i>{{ __('Open in Outlook') }}</a>
                     @endif
                 </div>
             </div>
-            <p class="section-note">{{ $email['outlook']
-                ? __('Open in Outlook starts the email in Outlook on the web, already filled in. Attach the portfolio and check your signature before sending. Closing it unsent keeps it in Drafts.')
-                : __('Ready to paste. Attach the portfolio; your Outlook signature goes underneath.') }}</p>
+            @if($email['mailto'])
+                <p class="section-note">
+                    {{ __('Open in Outlook starts the email in the Outlook app, already filled in. Attach the portfolio and check your signature before sending.') }}
+                    <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="underline">{{ __('Use Outlook on the web instead') }}</a>
+                </p>
+            @else
+                <p class="section-note">{{ __('Ready to paste. Attach the portfolio; your Outlook signature goes underneath.') }}</p>
+            @endif
 
             @if($p->draft->note)
                 <div class="notice mt-3"><p>{{ $p->draft->note }}</p></div>
