@@ -106,6 +106,14 @@ it('asks the office inbox to pass the email on until a direct address is saved',
 
     $this->get(route('outreach.show', 'allaire'))->assertSee('Open in Outlook');
 
+    OutreachProspect::where('key', 'allaire')->update(['email' => null]);
+
+    expect(Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])->instance()->email())
+        ->to->toBeNull()
+        ->mailto->toStartWith('mailto:?subject=For%20Marc%20Allaire');
+
+    $this->get(route('outreach.show', 'allaire'))->assertSee('Open in Outlook')->assertSee('To line blank');
+
     $component->set('directEmail', 'not an email')->call('saveDirectEmail')->assertHasErrors('directEmail');
 
     $component->set('directEmail', ' marc@allaire.test ')->call('saveDirectEmail')->assertHasNoErrors();

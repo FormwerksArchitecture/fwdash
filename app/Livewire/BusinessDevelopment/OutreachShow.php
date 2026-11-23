@@ -42,7 +42,7 @@ class OutreachShow extends Component
      * The drafted email as it should go out. Without a direct address for the named contact,
      * it goes to the office inbox with their name in the subject and a line asking for it to be passed on.
      *
-     * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, mailto: ?string, outlook: ?string}
+     * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, mailto: string, outlook: string}
      */
     public function email(): ?array
     {
@@ -78,22 +78,22 @@ class OutreachShow extends Component
             'callScript' => $passAlong && ! $office && $this->prospect->phone
                 ? "Hi, I'd like to send a short note to {$name}. What's the best email address to reach {$firstName}?"
                 : null,
-            'mailto' => $to ? self::mailtoUrl($to, $subject, $body) : null,
-            'outlook' => $to ? self::outlookComposeUrl($to, $subject, $body) : null,
+            'mailto' => self::mailtoUrl($to, $subject, $body),
+            'outlook' => self::outlookComposeUrl($to, $subject, $body),
         ];
     }
 
-    /** Opens a new message in the computer's mail app (the Outlook app when it is the default), already addressed and written. */
-    public static function mailtoUrl(string $to, string $subject, string $body): string
+    /** Opens a new message in the computer's mail app (the Outlook app when it is the default), already written, and addressed when there is an address. */
+    public static function mailtoUrl(?string $to, string $subject, string $body): string
     {
         return 'mailto:'.$to.'?subject='.rawurlencode($subject).'&body='.rawurlencode(str_replace("\n", "\r\n", $body));
     }
 
-    /** Opens a new message in Outlook on the web, already addressed and written. Closing it unsent keeps it in Drafts. */
-    public static function outlookComposeUrl(string $to, string $subject, string $body): string
+    /** Opens a new message in Outlook on the web, already written, and addressed when there is an address. Closing it unsent keeps it in Drafts. */
+    public static function outlookComposeUrl(?string $to, string $subject, string $body): string
     {
         return 'https://outlook.office.com/mail/deeplink/compose?'
-            .http_build_query(['to' => $to, 'subject' => $subject, 'body' => $body], '', '&', PHP_QUERY_RFC3986);
+            .http_build_query(['to' => (string) $to, 'subject' => $subject, 'body' => $body], '', '&', PHP_QUERY_RFC3986);
     }
 
     public function render(): View
