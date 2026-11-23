@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * @property int $id
@@ -48,5 +49,11 @@ class OutreachProspect extends Model
     public function projects(): HasMany
     {
         return $this->hasMany(OutreachProject::class, 'prospect_key', 'key')->orderBy('position');
+    }
+
+    /** @return HasOne<OutreachDraft, $this> */
+    public function draft(): HasOne
+    {
+        return $this->hasOne(OutreachDraft::class, 'prospect_key', 'key');
     }
 }

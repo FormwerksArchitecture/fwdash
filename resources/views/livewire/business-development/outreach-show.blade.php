@@ -56,6 +56,72 @@
         </div>
     @endif
 
+    @if($email)
+        @php
+            $copyButton = fn (string $value, string $label) => '<button type="button" class="btn-secondary" x-data="{ done: false }" x-on:click="navigator.clipboard.writeText('.e(json_encode($value)).'); done = true; setTimeout(() => done = false, 1500)"><i class="ph ph-copy"></i><span x-text="done ? '.e(json_encode(__('Copied'))).' : '.e(json_encode($label)).'">'.e($label).'</span></button>';
+        @endphp
+        <div class="card">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="section-title">{{ __('Drafted email') }}</h2>
+                {!! $copyButton($email['body'], __('Copy email')) !!}
+            </div>
+            <p class="section-note">{{ __('Ready to paste into Outlook. Attach the portfolio; your Outlook signature goes underneath.') }}</p>
+
+            @if($p->draft->note)
+                <div class="notice mt-3"><p>{{ $p->draft->note }}</p></div>
+            @endif
+
+            @if($email['callScript'])
+                <div class="mt-4 rounded border border-line p-4 text-sm">
+                    <p class="font-medium"><i class="ph ph-phone"></i> {{ __('Call first: :phone', ['phone' => $p->phone]) }}</p>
+                    <p class="mt-1 text-ink-2">{{ __('There is no email on file. Ask reception:') }}</p>
+                    <p class="mt-2 italic">"{{ $email['callScript'] }}"</p>
+                    <p class="mt-2 text-xs text-muted">{{ __('If they give one, save it below and the email goes straight to them. If not, paste the email into the website contact form.') }}</p>
+                </div>
+            @endif
+
+            <dl class="mt-4 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[6rem_1fr]">
+                <dt class="text-muted">{{ __('To') }}</dt>
+                <dd>
+                    @if($email['to'])
+                        <a href="mailto:{{ $email['to'] }}" class="underline">{{ $email['to'] }}</a>{!! $copy($email['to']) !!}
+                        @if($email['passAlong']) <span class="text-xs text-muted">({{ __('office inbox — no direct email for :name yet', ['name' => $person['name']]) }})</span> @endif
+                    @elseif($p->contact_page)
+                        {!! $link($p->contact_page, __('Website contact form')) !!} <span class="text-xs text-muted">({{ __('no email on file — paste the email into the form') }})</span>
+                    @else
+                        <span class="text-muted">{{ __('No email on file') }}</span>
+                    @endif
+                </dd>
+                <dt class="text-muted">{{ __('Subject') }}</dt>
+                <dd>{{ $email['subject'] }}{!! $copy($email['subject']) !!}</dd>
+                @if($person['name'] ?? null)
+                    <dt class="text-muted pt-1.5">{{ __('Direct email') }}</dt>
+                    <dd>
+                        <form wire:submit="saveDirectEmail" class="flex flex-wrap items-center gap-2">
+                            <input type="email" wire:model="directEmail" class="field-input max-w-72" placeholder="{{ __('From reception or LinkedIn') }}">
+                            <button type="submit" class="btn-secondary">{{ __('Save') }}</button>
+                        </form>
+                        @error('directEmail') <p class="mt-1 text-xs text-danger">{{ $message }}</p> @enderror
+                        <p class="mt-1 text-xs text-muted">{{ __('Only an address the company or person gave you. Never a guessed one.') }}</p>
+                    </dd>
+                @endif
+            </dl>
+
+            <div class="mt-4 whitespace-pre-line rounded border border-line bg-white p-4 text-sm leading-relaxed">{{ $email['body'] }}</div>
+
+            @if($email['linkedinNote'])
+                <div class="mt-6 border-t border-line pt-4">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <h3 class="font-medium">{{ __('LinkedIn note, same day') }}</h3>
+                        {!! $copyButton($email['linkedinNote'], __('Copy note')) !!}
+                    </div>
+                    <p class="mt-1 text-xs text-muted">{!! $link($person['linkedin'], __(':name on LinkedIn', ['name' => $person['name']])) !!} · {{ __(':count of 300 characters', ['count' => mb_strlen($email['linkedinNote'])]) }}</p>
+                    <div class="mt-2 rounded border border-line bg-white p-4 text-sm">{{ $email['linkedinNote'] }}</div>
+                </div>
+            @endif
+        </div>
+    @endif
+
     <div class="card">
         <div class="flex items-center gap-3">
             <h2 class="section-title">{{ __('Activity') }}</h2>
