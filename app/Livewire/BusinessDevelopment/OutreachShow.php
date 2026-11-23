@@ -42,7 +42,7 @@ class OutreachShow extends Component
      * The drafted email as it should go out. Without a direct address for the named contact,
      * it goes to the office inbox with their name in the subject and a line asking for it to be passed on.
      *
-     * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string}
+     * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, outlook: ?string}
      */
     public function email(): ?array
     {
@@ -64,17 +64,29 @@ class OutreachShow extends Component
                 : "Hi {$firstName}, I'd like to connect. Formwerks designs traditional wood-frame townhome and low-rise communities, and we offer a free site study for your next project.")
             : null;
 
+        $to = $direct ?: $office;
+        $subject = $passAlong ? "For {$name}: {$draft->subject}" : $draft->subject;
+        $body = $passAlong ? "Could you please pass this along to {$firstName}? Thank you.\n\n{$draft->body}" : $draft->body;
+
         return [
-            'to' => $direct ?: $office,
-            'subject' => $passAlong ? "For {$name}: {$draft->subject}" : $draft->subject,
-            'body' => $passAlong ? "Could you please pass this along to {$firstName}? Thank you.\n\n{$draft->body}" : $draft->body,
+            'to' => $to,
+            'subject' => $subject,
+            'body' => $body,
             'passAlong' => (bool) $passAlong,
             'direct' => (bool) $direct,
             'linkedinNote' => $linkedinNote,
             'callScript' => $passAlong && ! $office && $this->prospect->phone
                 ? "Hi, I'd like to send a short note to {$name}. What's the best email address to reach {$firstName}?"
                 : null,
+            'outlook' => $to ? self::outlookComposeUrl($to, $subject, $body) : null,
         ];
+    }
+
+    /** Opens a new message in Outlook on the web, already addressed and written. Closing it unsent keeps it in Drafts. */
+    public static function outlookComposeUrl(string $to, string $subject, string $body): string
+    {
+        return 'https://outlook.office.com/mail/deeplink/compose?'
+            .http_build_query(['to' => $to, 'subject' => $subject, 'body' => $body], '', '&', PHP_QUERY_RFC3986);
     }
 
     public function render(): View
