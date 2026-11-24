@@ -73,6 +73,8 @@ class OutreachShow extends Component
     {
         $this->validate(['signature' => ['nullable', 'string', 'max:2000']]);
 
+        $this->authorize(Permission::EditBusinessDevelopment->value);
+
         auth()->user()->forceFill(['email_signature' => trim($this->signature) ?: null])->save();
 
         Flux::toast(__('Signature saved.'));
@@ -100,11 +102,9 @@ class OutreachShow extends Component
         }
 
         $user = auth()->user();
-        $signature = trim((string) $user->email_signature);
-        $body = $signature === '' ? $email['body'] : "{$email['body']}\n\n{$signature}";
 
         try {
-            $draft = $outlook->createDraft($user, $email['to'], $email['subject'], $body, $attachments->all());
+            $draft = $outlook->createDraft($user, $email['to'], $email['subject'], $email['body'], $attachments->all());
         } catch (OutlookNotConnectedException) {
             $this->draftError = __('Connect Outlook first, so the draft can go in your Drafts folder.');
 
@@ -192,6 +192,7 @@ class OutreachShow extends Component
     /**
      * The drafted email as it should go out. Without a direct address for the named contact,
      * it goes to the office inbox with their name in the subject and a line asking for it to be passed on.
+     * The partner's saved signature closes it, since Outlook only adds its own to emails it starts itself.
      *
      * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, mailto: string, outlook: string}
      */
@@ -218,6 +219,8 @@ class OutreachShow extends Component
         $to = $direct ?: $office;
         $subject = $passAlong ? "For {$name}: {$draft->subject}" : $draft->subject;
         $body = $passAlong ? "Could you please pass this along to {$firstName}? Thank you.\n\n{$draft->body}" : $draft->body;
+        $signature = trim((string) auth()->user()?->email_signature);
+        $body = $signature === '' ? $body : "{$body}\n\n{$signature}";
 
         return [
             'to' => $to,

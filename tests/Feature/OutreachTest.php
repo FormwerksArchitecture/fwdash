@@ -313,3 +313,18 @@ it('lets only the claimer or an admin release a claim, and filters the list by o
 
     expect(OutreachStatus::first()->claimed_by)->toBeNull();
 });
+
+it('signs the email with the partner\'s saved signature in every way of opening it', function () {
+    outreachProspectWithDraft();
+    $this->actingAs(User::factory()->manager()->create());
+
+    $component = Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])
+        ->set('signature', "  Jim Partner\nFormwerks  ")
+        ->call('saveSignature');
+
+    expect($component->instance()->email())
+        ->body->toBe("Hi Marc,\n\nJim Partner\nFormwerks")
+        ->outlook->toStartWith('https://outlook.office.com/mail/deeplink/compose?')
+        ->outlook->toContain('Jim%20Partner%0AFormwerks')
+        ->mailto->toContain('Jim%20Partner%0D%0AFormwerks');
+});

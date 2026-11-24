@@ -166,13 +166,6 @@
                             <form method="POST" action="{{ route('outreach.outlook.disconnect') }}" class="inline">@csrf<button type="submit" class="underline">{{ __('Disconnect Outlook') }}</button></form>
                         </p>
 
-                        <details class="mt-3 text-xs">
-                            <summary class="cursor-pointer text-muted">{{ $signature !== '' ? __('Your signature') : __('Add your signature (drafts made here don\'t get Outlook\'s automatic one)') }}</summary>
-                            <form wire:submit="saveSignature" class="mt-2 space-y-2">
-                                <textarea wire:model="signature" rows="5" class="field-input w-full max-w-md font-sans" placeholder="{{ __("Your Name\nPartner, Formwerks Architectural\n604 555 0100 · formwerks.ca") }}"></textarea>
-                                <button type="submit" class="btn-secondary">{{ __('Save signature') }}</button>
-                            </form>
-                        </details>
                     @endif
                     @if($draftError)
                         <p class="mt-2 text-xs text-danger">{{ $draftError }}</p>
@@ -180,12 +173,24 @@
                 </div>
             @endif
 
-            <p class="section-note">
-                @unless($email['to']) {{ __('No address yet, so the To line will be blank: add it once you have one.') }} @endunless
-                <a href="{{ $email['mailto'] }}" class="underline">{{ __('Open in Outlook') }}</a> {{ __('or') }}
-                <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="underline">{{ __('Outlook on the web') }}</a>
-                {{ __('without attachments.') }}
-            </p>
+            <div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="btn-secondary"><i class="ph ph-microsoft-outlook-logo"></i>{{ __('Open in Outlook') }}</a>
+                <span class="text-xs text-muted">
+                    {{ __('Opens Outlook in the browser, written and signed, without attachments.') }}
+                    @unless($email['to']) {{ __('No address yet, so the To line will be blank: add it once you have one.') }} @endunless
+                    <a href="{{ $email['mailto'] }}" class="underline">{{ __('Use this computer\'s mail app instead') }}</a>
+                </span>
+            </div>
+
+            @if($canEdit)
+                <details class="mt-3 text-xs">
+                    <summary class="cursor-pointer text-muted">{{ $signature !== '' ? __('Your signature (added to every email here)') : __('Add your signature: emails started here don\'t get Outlook\'s automatic one') }}</summary>
+                    <form wire:submit="saveSignature" class="mt-2 space-y-2">
+                        <textarea wire:model="signature" rows="5" class="field-input w-full max-w-md font-sans" placeholder="{{ __("Your Name\nPartner, Formwerks Architectural\n604 555 0100 · formwerks.ca") }}"></textarea>
+                        <button type="submit" class="btn-secondary">{{ __('Save signature') }}</button>
+                    </form>
+                </details>
+            @endif
 
             @if($p->draft->note)
                 <div class="notice mt-3"><p>{{ $p->draft->note }}</p></div>
