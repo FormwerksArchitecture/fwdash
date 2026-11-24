@@ -8,7 +8,7 @@
     $chip = fn (bool $on) => $on ? 'chip is-on cursor-pointer' : 'chip cursor-pointer';
 @endphp
 
-<div class="space-y-8">
+<div class="space-y-8" wire:poll.30s.visible>
     <div>
         <h1 class="page-title">{{ __('Outreach List') }}</h1>
         <p class="page-subtitle">{{ __('BC developers to approach, from the prospects research') }}@if($built) · {{ __('built :date', ['date' => $built]) }}@endif. {{ __('Click one for its page.') }}</p>

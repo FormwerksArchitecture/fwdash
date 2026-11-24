@@ -42,7 +42,15 @@ class OutreachShow extends Component
     {
         $this->authorize(Permission::EditBusinessDevelopment->value);
 
-        $this->status()->fill(['claimed_by' => auth()->id(), 'claimed_at' => now()])->save();
+        $status = $this->status();
+
+        if ($status->claimed_by && $status->claimed_by !== auth()->id()) {
+            Flux::toast(__(':name claimed this first.', ['name' => $status->claimer?->name ?? __('Someone')]), variant: 'warning');
+
+            return;
+        }
+
+        $status->fill(['claimed_by' => auth()->id(), 'claimed_at' => now()])->save();
     }
 
     /** Only the partner who claimed it, or an admin, can let it go. */

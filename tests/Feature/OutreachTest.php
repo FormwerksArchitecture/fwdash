@@ -162,7 +162,9 @@ it('lets only the claimer or an admin release a claim, and filters the list by o
     expect(Livewire::test(OutreachIndex::class)->call('toggle', 'progress', 'mine')->get('rows')->pluck('key')->all())->toBe(['allaire']);
 
     $this->actingAs($other);
-    expect(Livewire::test(OutreachIndex::class)->call('toggle', 'progress', 'mine')->get('rows'))->toBeEmpty()
+    Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])->call('claim');
+    expect(OutreachStatus::first()->claimed_by)->toBe($jim->id)
+        ->and(Livewire::test(OutreachIndex::class)->call('toggle', 'progress', 'mine')->get('rows'))->toBeEmpty()
         ->and(Livewire::test(OutreachIndex::class)->call('toggle', 'progress', 'claimed')->get('rows')->pluck('key')->all())->toBe(['allaire']);
 
     Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])->call('release')->assertForbidden();

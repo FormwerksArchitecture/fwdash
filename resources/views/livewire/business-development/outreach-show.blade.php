@@ -64,15 +64,10 @@
             $claimedByOther = $status->claimed_by && ! $mine;
         @endphp
         <div class="card">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2 class="section-title">{{ __('Drafted email') }}</h2>
-                <div class="flex flex-wrap items-center gap-2">
-                    {!! $copyButton($email['body'], __('Copy email')) !!}
-                </div>
-            </div>
+            <h2 class="section-title">{{ __('Drafted email') }}</h2>
 
-            {{-- Who is on it, and how far it got --}}
-            <div @class([
+            {{-- Who is on it, and how far it got. Polls so a claim or send by someone else shows up here without a reload. --}}
+            <div wire:poll.15s.visible @class([
                 'mt-3 flex flex-wrap items-center justify-between gap-3 rounded border p-3 text-sm',
                 'border-[#1c6f50]/30 bg-[#dcefe2]/50' => $stage === 'sent',
                 'border-[#c28f1c]/40 bg-[#fdf3d8]/60' => $claimedByOther && $stage !== 'sent',
@@ -112,15 +107,6 @@
                 @endif
             </div>
 
-            <div class="mt-4 flex flex-wrap items-center gap-3 text-sm">
-                <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="btn"><i class="ph ph-microsoft-outlook-logo"></i>{{ __('Open in Outlook') }}</a>
-                <span class="text-xs text-muted">
-                    {{ __('Opens Outlook in the browser, written and signed. Attach the portfolio there, send, then click Mark as sent.') }}
-                    @unless($email['to']) {{ __('No address yet, so the To line will be blank: add it once you have one.') }} @endunless
-                    <a href="{{ $email['mailto'] }}" class="underline">{{ __('Use this computer\'s mail app instead') }}</a>
-                </span>
-            </div>
-
             @if($canEdit)
                 <details class="mt-3 text-xs">
                     <summary class="cursor-pointer text-muted">{{ $signature !== '' ? __('Your signature (added to every email here)') : __('Add your signature: emails started here don\'t get Outlook\'s automatic one') }}</summary>
@@ -156,8 +142,6 @@
                         <span class="text-muted">{{ __('No email on file') }}</span>
                     @endif
                 </dd>
-                <dt class="text-muted">{{ __('Subject') }}</dt>
-                <dd>{{ $email['subject'] }}{!! $copy($email['subject']) !!}</dd>
                 @if($person['name'] ?? null)
                     <dt class="text-muted pt-1.5">{{ __('Direct email') }}</dt>
                     <dd>
@@ -171,7 +155,33 @@
                 @endif
             </dl>
 
-            <div class="mt-4 whitespace-pre-line rounded border border-line bg-white p-4 text-sm leading-relaxed">{{ $email['body'] }}</div>
+            {{-- Edit before sending. Edits stay in this browser (so researching other tabs doesn't lose them) until Reset, or until the drafted text changes. --}}
+            <div
+                class="mt-4 space-y-3"
+                wire:ignore
+                wire:key="email-editor-{{ md5(json_encode([$email['to'], $email['subject'], $email['body']])) }}"
+                x-data="outreachEmail(@js(['key' => $p->key, 'to' => (string) $email['to'], 'subject' => $email['subject'], 'body' => $email['body']]))"
+            >
+                <label class="block text-sm">
+                    <span class="text-muted">{{ __('Subject') }}</span>
+                    <input type="text" x-model="subject" class="field-input mt-1 w-full">
+                </label>
+                <label class="block text-sm">
+                    <span class="text-muted">{{ __('Email') }}</span>
+                    <textarea x-model="body" rows="14" class="field-input mt-1 w-full font-sans text-sm leading-relaxed"></textarea>
+                </label>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a :href="outlookUrl()" target="_blank" rel="noopener" class="btn"><i class="ph ph-microsoft-outlook-logo"></i>{{ __('Open in Outlook') }}</a>
+                    <button type="button" class="btn-secondary" x-on:click="copy('body')"><i class="ph ph-copy"></i><span x-text="copied === 'body' ? @js(__('Copied')) : @js(__('Copy email'))"></span></button>
+                    <button type="button" class="btn-secondary" x-on:click="copy('subject')"><i class="ph ph-copy"></i><span x-text="copied === 'subject' ? @js(__('Copied')) : @js(__('Copy subject'))"></span></button>
+                    <button type="button" class="btn-secondary" x-show="subject !== originalSubject || body !== originalBody" x-on:click="reset()">{{ __('Undo my edits') }}</button>
+                </div>
+                <p class="text-xs text-muted">
+                    {{ __('Change anything above first: the buttons use your edited version. Open in Outlook opens it in the browser, written and signed. Attach the portfolio there, send, then click Mark as sent.') }}
+                    @unless($email['to']) {{ __('No address yet, so the To line will be blank: add it once you have one.') }} @endunless
+                    <a :href="mailtoUrl()" class="underline">{{ __('Use this computer\'s mail app instead') }}</a>
+                </p>
+            </div>
 
             @if($email['linkedinNote'])
                 <div class="mt-6 border-t border-line pt-4">
@@ -304,3 +314,50 @@
         </div>
     @endif
 </div>
+
+@script
+<script>
+    Alpine.data('outreachEmail', (original) => {
+        const storageKey = `outreach-email:${original.key}`;
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(storageKey)); } catch (e) {}
+        const usable = saved && saved.base === original.subject + original.body;
+
+        return {
+            subject: usable ? saved.subject : original.subject,
+            body: usable ? saved.body : original.body,
+            originalSubject: original.subject,
+            originalBody: original.body,
+            copied: null,
+            init() {
+                this.$watch('subject', () => this.remember());
+                this.$watch('body', () => this.remember());
+            },
+            remember() {
+                try {
+                    this.subject !== original.subject || this.body !== original.body
+                        ? localStorage.setItem(storageKey, JSON.stringify({ base: original.subject + original.body, subject: this.subject, body: this.body }))
+                        : localStorage.removeItem(storageKey);
+                } catch (e) {}
+            },
+            reset() {
+                this.subject = original.subject;
+                this.body = original.body;
+            },
+            copy(field) {
+                navigator.clipboard.writeText(this[field]);
+                this.copied = field;
+                setTimeout(() => this.copied = null, 1500);
+            },
+            outlookUrl() {
+                const query = ['to', 'subject', 'body'].map((name) => `${name}=${encodeURIComponent(name === 'to' ? original.to : this[name])}`).join('&');
+
+                return `https://outlook.office.com/mail/deeplink/compose?${query}`;
+            },
+            mailtoUrl() {
+                return `mailto:${original.to}?subject=${encodeURIComponent(this.subject)}&body=${encodeURIComponent(this.body.replace(/\r?\n/g, '\r\n'))}`;
+            },
+        };
+    });
+</script>
+@endscript
