@@ -60,19 +60,131 @@
         @php
             $copyButton = fn (string $value, string $label) => '<button type="button" class="btn-secondary" x-data="{ done: false }" x-on:click="navigator.clipboard.writeText('.e(json_encode($value)).'); done = true; setTimeout(() => done = false, 1500)"><i class="ph ph-copy"></i><span x-text="done ? '.e(json_encode(__('Copied'))).' : '.e(json_encode($label)).'">'.e($label).'</span></button>';
         @endphp
+        @php
+            $stage = $status->stage();
+            $mine = $status->claimed_by === auth()->id();
+            $claimedByOther = $status->claimed_by && ! $mine;
+            $totalBytes = $attachments->whereIn('id', $attachmentIds)->sum('size');
+        @endphp
         <div class="card">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <h2 class="section-title">{{ __('Drafted email') }}</h2>
                 <div class="flex flex-wrap items-center gap-2">
                     {!! $copyButton($email['body'], __('Copy email')) !!}
-                    <a href="{{ $email['mailto'] }}" class="btn"><i class="ph ph-envelope-simple"></i>{{ __('Open in Outlook') }}</a>
                 </div>
             </div>
+
+            {{-- Who is on it, and how far it got --}}
+            <div @class([
+                'mt-3 flex flex-wrap items-center justify-between gap-3 rounded border p-3 text-sm',
+                'border-[#1c6f50]/30 bg-[#dcefe2]/50' => $stage === 'sent',
+                'border-[#c28f1c]/40 bg-[#fdf3d8]/60' => $claimedByOther && $stage !== 'sent',
+                'border-line' => ! $claimedByOther && $stage !== 'sent',
+            ])>
+                <p>
+                    @switch($stage)
+                        @case('sent')
+                            <i class="ph-fill ph-check-circle text-[#1c6f50]"></i>
+                            {{ __('Sent :date by :name.', ['date' => $status->sent_at?->format('M j, Y'), 'name' => $status->sender?->name ?? __('someone')]) }}
+                            <a href="{{ route('pipeline') }}" class="underline" wire:navigate>{{ __('On the Pipeline as Contacted') }}</a>
+                            @break
+                        @case('drafted')
+                            <i class="ph ph-envelope-open"></i>
+                            {{ __('Draft created :date in :name\'s Outlook — not sent yet.', ['date' => $status->drafted_at?->format('M j'), 'name' => $status->drafter?->name ?? __('someone')]) }}
+                            @break
+                        @case('claimed')
+                            <i class="ph ph-hand"></i>
+                            {{ $mine ? __('You claimed this :date.', ['date' => $status->claimed_at?->format('M j')]) : __(':name claimed this :date. Check with them before emailing.', ['name' => $status->claimer?->name ?? __('Someone'), 'date' => $status->claimed_at?->format('M j')]) }}
+                            @break
+                        @default
+                            <span class="text-muted">{{ __('Nobody is on this one yet.') }}</span>
+                    @endswitch
+                    @if(in_array($stage, ['drafted', 'sent'], true) && $claimedByOther)
+                        <span class="text-muted">{{ __('Claimed by :name.', ['name' => $status->claimer?->name]) }}</span>
+                    @endif
+                </p>
+                @if($canEdit)
+                    <div class="flex flex-wrap items-center gap-2">
+                        @if($stage === 'open')
+                            <button type="button" class="btn-secondary" wire:click="claim"><i class="ph ph-hand"></i>{{ __('Claim') }}</button>
+                        @elseif($stage !== 'sent' && ($mine || auth()->user()->can(\App\Enums\Permission::ManageUsers->value)) && $status->claimed_by)
+                            <button type="button" class="btn-secondary" wire:click="release">{{ __('Release') }}</button>
+                        @endif
+                        @if($stage === 'sent')
+                            <button type="button" class="btn-secondary" wire:click="undoSent" wire:confirm="{{ __('Mark this as not sent? The Pipeline entry stays; delete it there if it is wrong.') }}">{{ __('Not sent') }}</button>
+                        @else
+                            <button type="button" class="btn-secondary" wire:click="markSent" title="{{ __('Click once the email has gone out, from Outlook or the contact form') }}"><i class="ph ph-check"></i>{{ __('Mark as sent') }}</button>
+                        @endif
+                    </div>
+                @endif
+            </div>
+
+            @if(session('status'))
+                <div class="notice mt-3"><p>{{ session('status') }}</p></div>
+            @endif
+
+            @if($canEdit && $stage !== 'sent')
+                <div class="mt-4 rounded border border-line p-4 text-sm">
+                    @if(! $hasOutlook)
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <p class="max-w-xl">{{ __('Connect Outlook once and the dashboard can put this email, PDFs attached, straight into your Outlook Drafts folder. It never sends anything: you check it and press Send.') }}</p>
+                            <a href="{{ route('outreach.outlook.connect') }}" class="btn"><i class="ph ph-microsoft-outlook-logo"></i>{{ __('Connect Outlook') }}</a>
+                        </div>
+                    @else
+                        <p class="font-medium">{{ __('Attach') }}</p>
+                        @if($attachments->isEmpty())
+                            <p class="mt-1 text-muted">{{ __('No PDFs uploaded yet. Add them under "PDFs to attach" on the Outreach list.') }}</p>
+                        @else
+                            <div class="mt-2 space-y-1.5">
+                                @foreach($attachments as $attachment)
+                                    <label class="flex items-center gap-2" wire:key="pick-{{ $attachment->id }}">
+                                        <input type="checkbox" value="{{ $attachment->id }}" wire:model.live="attachmentIds">
+                                        <i class="ph ph-file-pdf text-[#a83f24]"></i>
+                                        {{ $attachment->name }} <span class="text-xs text-muted">{{ $attachment->sizeLabel() }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                            @if($totalBytes > \App\Models\OutreachAttachment::MaxBytes)
+                                <p class="mt-1 text-xs text-danger">{{ __('Over 15 MB in total: many mail servers will bounce it.') }}</p>
+                            @endif
+                        @endif
+
+                        <div class="mt-4 flex flex-wrap items-center gap-3">
+                            <button type="button" class="btn" wire:click="createDraft" wire:loading.attr="disabled" wire:target="createDraft"
+                                @if($claimedByOther) wire:confirm="{{ __(':name has claimed this prospect. Create a draft anyway?', ['name' => $status->claimer?->name ?? __('Someone')]) }}" @endif>
+                                <i class="ph ph-envelope-simple" wire:loading.remove wire:target="createDraft"></i>
+                                <i class="ph ph-spinner animate-spin" wire:loading wire:target="createDraft"></i>
+                                {{ $stage === 'drafted' ? __('Create a new draft in Outlook') : __('Create draft in Outlook') }}
+                            </button>
+                            @if($draftLink)
+                                <a href="{{ $draftLink }}" target="_blank" rel="noopener" class="btn-secondary"><i class="ph ph-arrow-square-out"></i>{{ __('Open the draft') }}</a>
+                                <span class="text-xs text-[#1c6f50]">{{ __('In your Outlook Drafts. Check it, press Send there, then Mark as sent here.') }}</span>
+                            @endif
+                        </div>
+                        <p class="mt-2 text-xs text-muted">
+                            {{ __('After you send it from Outlook, come back and click Mark as sent.') }}
+                            <form method="POST" action="{{ route('outreach.outlook.disconnect') }}" class="inline">@csrf<button type="submit" class="underline">{{ __('Disconnect Outlook') }}</button></form>
+                        </p>
+
+                        <details class="mt-3 text-xs">
+                            <summary class="cursor-pointer text-muted">{{ $signature !== '' ? __('Your signature') : __('Add your signature (drafts made here don\'t get Outlook\'s automatic one)') }}</summary>
+                            <form wire:submit="saveSignature" class="mt-2 space-y-2">
+                                <textarea wire:model="signature" rows="5" class="field-input w-full max-w-md font-sans" placeholder="{{ __("Your Name\nPartner, Formwerks Architectural\n604 555 0100 · formwerks.ca") }}"></textarea>
+                                <button type="submit" class="btn-secondary">{{ __('Save signature') }}</button>
+                            </form>
+                        </details>
+                    @endif
+                    @if($draftError)
+                        <p class="mt-2 text-xs text-danger">{{ $draftError }}</p>
+                    @endif
+                </div>
+            @endif
+
             <p class="section-note">
-                {{ $email['to']
-                    ? __('Open in Outlook starts the email in the Outlook app, already filled in. Attach the portfolio and check your signature before sending.')
-                    : __('Open in Outlook starts the email in the Outlook app with the To line blank: add the address once you have one. Attach the portfolio and check your signature before sending.') }}
-                <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="underline">{{ __('Use Outlook on the web instead') }}</a>
+                @unless($email['to']) {{ __('No address yet, so the To line will be blank: add it once you have one.') }} @endunless
+                <a href="{{ $email['mailto'] }}" class="underline">{{ __('Open in Outlook') }}</a> {{ __('or') }}
+                <a href="{{ $email['outlook'] }}" target="_blank" rel="noopener" class="underline">{{ __('Outlook on the web') }}</a>
+                {{ __('without attachments.') }}
             </p>
 
             @if($p->draft->note)

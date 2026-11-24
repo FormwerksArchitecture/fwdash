@@ -4,6 +4,7 @@ namespace App\Livewire\BusinessDevelopment;
 
 use App\Models\AppSetting;
 use App\Models\OutreachProspect;
+use App\Models\OutreachStatus;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -15,6 +16,7 @@ use Livewire\Component;
 /**
  * @property-read Collection<int, OutreachProspect> $prospects
  * @property-read Collection<int, OutreachProspect> $rows
+ * @property-read Collection<string, OutreachStatus> $statuses
  */
 #[Title('Outreach List')]
 class OutreachIndex extends Component
@@ -59,6 +61,18 @@ class OutreachIndex extends Component
     #[Url]
     public array $has = [];
 
+    public const Progress = [
+        'mine' => ['Mine', 'Claimed by you'],
+        'open' => ['Not contacted', 'Nobody has claimed it or sent anything'],
+        'claimed' => ['Claimed', 'Someone is on it, nothing sent yet'],
+        'drafted' => ['Drafted', 'A draft is waiting in someone\'s Outlook'],
+        'sent' => ['Sent', 'First email sent'],
+    ];
+
+    /** @var array<int, string> */
+    #[Url]
+    public array $progress = [];
+
     #[Url]
     public string $sort = 'fit';
 
@@ -74,6 +88,18 @@ class OutreachIndex extends Component
             ->get()
             ->reject(fn (OutreachProspect $prospect) => in_array('Skip', $prospect->tags, true))
             ->values();
+    }
+
+    /** @return Collection<string, OutreachStatus> by prospect key */
+    #[Computed]
+    public function statuses(): Collection
+    {
+        return OutreachStatus::with(['claimer', 'sender'])->get()->keyBy('prospect_key');
+    }
+
+    public function progressOf(OutreachProspect $prospect): string
+    {
+        return $this->statuses->get($prospect->key)?->stage() ?? 'open';
     }
 
     /** @return Collection<int, OutreachProspect> */
@@ -99,6 +125,10 @@ class OutreachIndex extends Component
                 return false;
             }
 
+            if ($this->progress && ! $this->inProgress($prospect)) {
+                return false;
+            }
+
             foreach ($this->has as $requirement) {
                 if (! $this->meets($prospect, $requirement)) {
                     return false;
@@ -121,7 +151,7 @@ class OutreachIndex extends Component
 
     public function toggle(string $filter, string $value): void
     {
-        abort_unless(in_array($filter, ['tiers', 'activity', 'types', 'has'], true), 422);
+        abort_unless(in_array($filter, ['tiers', 'activity', 'types', 'has', 'progress'], true), 422);
 
         $this->{$filter} = in_array($value, $this->{$filter}, true)
             ? array_values(array_diff($this->{$filter}, [$value]))
@@ -130,7 +160,7 @@ class OutreachIndex extends Component
 
     public function resetFilters(): void
     {
-        $this->reset('search', 'region', 'tiers', 'activity', 'types', 'has');
+        $this->reset('search', 'region', 'tiers', 'activity', 'types', 'has', 'progress');
     }
 
     public static function status(OutreachProspect $prospect): string
@@ -161,8 +191,17 @@ class OutreachIndex extends Component
             'built' => AppSetting::find('outreach.built')?->value,
             'mapUrl' => AppSetting::find('outreach.map_url')?->value,
             'projectCount' => $prospects->sum(fn (OutreachProspect $prospect) => $prospect->projects->count()),
-            'isDefault' => $this->tiers === ['A', 'B'] && $this->region === '' && ! $this->activity && ! $this->types && ! $this->has && $this->search === '',
+            'isDefault' => $this->tiers === ['A', 'B'] && $this->region === '' && ! $this->activity && ! $this->types && ! $this->has && ! $this->progress && $this->search === '',
         ]);
+    }
+
+    /** Any of the ticked progress chips matches. */
+    protected function inProgress(OutreachProspect $prospect): bool
+    {
+        $stage = $this->progressOf($prospect);
+        $mine = $this->statuses->get($prospect->key)?->claimed_by === auth()->id();
+
+        return collect($this->progress)->contains(fn (string $chip) => $chip === 'mine' ? $mine : $chip === $stage);
     }
 
     protected function meets(OutreachProspect $prospect, string $requirement): bool

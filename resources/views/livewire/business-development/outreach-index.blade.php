@@ -3,6 +3,8 @@
 
     $all = $this->prospects;
     $rows = $this->rows;
+    $statuses = $this->statuses;
+    $progressCount = fn (string $chip) => $all->filter(fn ($p) => $chip === 'mine' ? $statuses->get($p->key)?->claimed_by === auth()->id() : $this->progressOf($p) === $chip)->count();
     $chip = fn (bool $on) => $on ? 'chip is-on cursor-pointer' : 'chip cursor-pointer';
 @endphp
 
@@ -26,6 +28,8 @@
             </x-kpi>
         </div>
 
+        <livewire:business-development.outreach-attachments />
+
         <div class="card p-0">
             <div class="space-y-3 px-6 pt-5 pb-4">
                 <div class="toolbar">
@@ -39,6 +43,12 @@
                     </select>
                 </div>
 
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="kpi-label w-16">{{ __('Outreach') }}</span>
+                    @foreach(OutreachIndex::Progress as $key => [$label, $tip])
+                        <button type="button" class="{{ $chip(in_array($key, $progress, true)) }}" title="{{ $tip }}" wire:click="toggle('progress', '{{ $key }}')">{{ __($label) }} · {{ $progressCount($key) }}</button>
+                    @endforeach
+                </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="kpi-label w-16">{{ __('Fit') }}</span>
                     @foreach(OutreachIndex::Tiers as $tier => $label)
@@ -84,6 +94,7 @@
                             <th>{{ __('Builds') }}</th>
                             <x-sort-header column="contact" :$sort :$direction>{{ __('Best contact') }}</x-sort-header>
                             <x-sort-header column="projects" :$sort :$direction numeric>{{ __('Projects') }}</x-sort-header>
+                            <th>{{ __('Outreach') }}</th>
                             <th>{{ __('Tags') }}</th>
                         </tr>
                     </thead>
@@ -131,12 +142,31 @@
                                 </td>
                                 <td class="is-num">{{ $prospect->projects->count() ?: (count($prospect->recent) ?: '—') }}</td>
                                 <td>
+                                    @php $status = $statuses->get($prospect->key); @endphp
+                                    @switch($status?->stage())
+                                        @case('sent')
+                                            <span class="chip is-on">{{ __('Sent :date', ['date' => $status->sent_at->format('M j')]) }}</span>
+                                            @break
+                                        @case('drafted')
+                                            <span class="chip is-warn">{{ __('Drafted') }}</span>
+                                            @break
+                                        @case('claimed')
+                                            <span class="chip">{{ Str::before($status->claimer?->name ?? '', ' ') ?: __('Claimed') }}</span>
+                                            @break
+                                        @default
+                                            <span class="text-muted">—</span>
+                                    @endswitch
+                                    @if($status?->claimer && $status->stage() !== 'claimed')
+                                        <div class="text-xs text-muted">{{ Str::before($status->claimer->name, ' ') }}</div>
+                                    @endif
+                                </td>
+                                <td>
                                     @if(in_array('Check first', $prospect->tags, true)) <span class="chip is-warn">{{ __('Possible client') }}</span> @endif
                                     @if(in_array('Warm lead', $prospect->tags, true)) <span class="chip is-on">{{ __('Worked with us') }}</span> @endif
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="8" class="py-10 text-center text-muted">{{ __('Nothing matches those filters.') }}</td></tr>
+                            <tr><td colspan="9" class="py-10 text-center text-muted">{{ __('Nothing matches those filters.') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>

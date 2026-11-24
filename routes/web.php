@@ -23,8 +23,10 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('guest')->group(function () {
     Route::view('login', 'auth.login')->name('login');
     Route::get('auth/microsoft/redirect', [MicrosoftController::class, 'redirect'])->name('auth.microsoft.redirect');
-    Route::get('auth/microsoft/callback', [MicrosoftController::class, 'callback'])->name('auth.microsoft.callback');
 });
+
+// Outside the guest group: a signed-in partner comes back here after connecting Outlook.
+Route::get('auth/microsoft/callback', [MicrosoftController::class, 'callback'])->name('auth.microsoft.callback');
 
 Route::middleware('auth')->group(function () {
     Route::get('/', HomeController::class)->name('home');
