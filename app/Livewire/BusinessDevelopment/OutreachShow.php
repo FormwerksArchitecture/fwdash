@@ -4,16 +4,11 @@ namespace App\Livewire\BusinessDevelopment;
 
 use App\Enums\Permission;
 use App\Enums\PursuitStage;
-use App\Models\OutreachAttachment;
 use App\Models\OutreachProspect;
 use App\Models\OutreachStatus;
 use App\Models\Pursuit;
 use App\Models\User;
-use App\Support\Outlook;
-use App\Support\OutlookNotConnectedException;
 use Flux\Flux;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Livewire\Component;
@@ -27,15 +22,7 @@ class OutreachShow extends Component
 
     public string $directEmail = '';
 
-    /** @var array<int, int> ids of the PDFs ticked for this email */
-    public array $attachmentIds = [];
-
     public string $signature = '';
-
-    public ?string $draftError = null;
-
-    /** Outlook on the web's link to the draft just created. */
-    public ?string $draftLink = null;
 
     public function mount(string $prospectKey): void
     {
@@ -43,13 +30,12 @@ class OutreachShow extends Component
 
         $this->keys = session('outreach.order', []);
         $this->directEmail = (string) $this->prospect->draft?->direct_email;
-        $this->attachmentIds = OutreachAttachment::ready()->where('is_default', true)->pluck('id')->all();
         $this->signature = (string) auth()->user()->email_signature;
     }
 
     public function status(): OutreachStatus
     {
-        return OutreachStatus::with(['claimer', 'drafter', 'sender'])->firstOrNew(['prospect_key' => $this->prospect->key]);
+        return OutreachStatus::with(['claimer', 'sender'])->firstOrNew(['prospect_key' => $this->prospect->key]);
     }
 
     public function claim(): void
@@ -71,66 +57,13 @@ class OutreachShow extends Component
 
     public function saveSignature(): void
     {
-        $this->validate(['signature' => ['nullable', 'string', 'max:2000']]);
-
         $this->authorize(Permission::EditBusinessDevelopment->value);
+
+        $this->validate(['signature' => ['nullable', 'string', 'max:2000']]);
 
         auth()->user()->forceFill(['email_signature' => trim($this->signature) ?: null])->save();
 
         Flux::toast(__('Signature saved.'));
-    }
-
-    /**
-     * Puts the email, with the ticked PDFs, in the partner's own Outlook Drafts folder and claims the
-     * prospect for them. The partner opens it there, checks it and presses Send themselves.
-     */
-    public function createDraft(Outlook $outlook): void
-    {
-        $this->authorize(Permission::EditBusinessDevelopment->value);
-
-        $this->draftError = null;
-        $email = $this->email();
-
-        abort_if($email === null, 404);
-
-        $attachments = OutreachAttachment::ready()->whereIn('id', $this->attachmentIds)->get();
-
-        if ($attachments->sum('size') > OutreachAttachment::MaxBytes) {
-            $this->draftError = __('Those PDFs add up to more than 15 MB. Many mail servers bounce emails that large, so pick fewer.');
-
-            return;
-        }
-
-        $user = auth()->user();
-
-        try {
-            $draft = $outlook->createDraft($user, $email['to'], $email['subject'], $email['body'], $attachments->all());
-        } catch (OutlookNotConnectedException) {
-            $this->draftError = __('Connect Outlook first, so the draft can go in your Drafts folder.');
-
-            return;
-        } catch (RequestException $exception) {
-            $this->draftError = Outlook::describe($exception);
-
-            return;
-        } catch (ConnectionException) {
-            $this->draftError = __('Could not reach Outlook. Please try again in a moment.');
-
-            return;
-        }
-
-        $status = $this->status();
-
-        $status->fill([
-            'claimed_by' => $status->claimed_by ?? $user->id,
-            'claimed_at' => $status->claimed_at ?? now(),
-            'drafted_by' => $user->id,
-            'drafted_at' => now(),
-            'sent_by' => null,
-            'sent_at' => null,
-        ])->save();
-
-        $this->draftLink = $draft['webLink'];
     }
 
     /** The partner says the email went out: from Outlook, the contact form, or anywhere else. */
@@ -192,7 +125,7 @@ class OutreachShow extends Component
     /**
      * The drafted email as it should go out. Without a direct address for the named contact,
      * it goes to the office inbox with their name in the subject and a line asking for it to be passed on.
-     * The partner's saved signature closes it, since Outlook only adds its own to emails it starts itself.
+     * The partner's saved signature closes it, since Outlook doesn't add its own to an email started from a link.
      *
      * @return ?array{to: ?string, subject: string, body: string, passAlong: bool, direct: bool, linkedinNote: ?string, callScript: ?string, mailto: string, outlook: string}
      */
@@ -261,8 +194,6 @@ class OutreachShow extends Component
             'typeColors' => OutreachIndex::typeColors(),
             'email' => $this->email(),
             'status' => $this->status(),
-            'attachments' => OutreachAttachment::ready()->get(),
-            'hasOutlook' => auth()->user()->hasOutlook(),
             'canEdit' => auth()->user()->can(Permission::EditBusinessDevelopment->value),
         ])->title($this->prospect->name);
     }

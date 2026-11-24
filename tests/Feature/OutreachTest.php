@@ -3,14 +3,11 @@
 use App\Enums\PursuitStage;
 use App\Livewire\BusinessDevelopment\OutreachIndex;
 use App\Livewire\BusinessDevelopment\OutreachShow;
-use App\Models\OutreachAttachment;
 use App\Models\OutreachDraft;
 use App\Models\OutreachProspect;
 use App\Models\OutreachStatus;
 use App\Models\Pursuit;
 use App\Models\User;
-use Illuminate\Http\Client\Request;
-use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
 function outreachFile(): string
@@ -137,144 +134,6 @@ function outreachProspectWithDraft(): void
     OutreachProspect::where('key', 'allaire')->update(['email' => 'hello@allaire.test']);
     OutreachDraft::create(['prospect_key' => 'allaire', 'subject' => 'Stone Ridge, and your next site', 'body' => 'Hi Marc,']);
 }
-
-function outlookPartner(array $attributes = []): User
-{
-    return tap(User::factory()->manager()->create()->forceFill([
-        'microsoft_id' => 'ms-partner',
-        'outlook_access_token' => 'access-1',
-        'outlook_refresh_token' => 'refresh-1',
-        'outlook_expires_at' => now()->addHour(),
-        ...$attributes,
-    ]))->save();
-}
-
-function portfolio(int $bytes = 1000, bool $default = true): OutreachAttachment
-{
-    $attachment = OutreachAttachment::create(['name' => 'Portfolio', 'filename' => 'portfolio.pdf', 'size' => $bytes, 'chunks' => 1, 'complete' => true, 'is_default' => $default]);
-    $attachment->parts()->create(['position' => 0, 'data' => base64_encode(str_pad('%PDF-1.7', $bytes, 'x'))]);
-
-    return $attachment;
-}
-
-it('uploads a PDF in pieces and turns away anything that is not one', function () {
-    $this->actingAs(User::factory()->manager()->create());
-
-    $pdf = '%PDF-1.7 '.str_repeat('a', OutreachAttachment::ChunkBytes);
-    $created = $this->postJson(route('outreach.attachments.store'), ['name' => 'Portfolio', 'filename' => 'Portfolio 2026.pdf', 'size' => strlen($pdf)])
-        ->assertOk()
-        ->assertJson(['chunks' => 2]);
-
-    $id = $created->json('id');
-    $this->call('PUT', "/outreach-attachments/{$id}/chunks/0", [], [], [], ['CONTENT_TYPE' => 'application/octet-stream'], substr($pdf, 0, OutreachAttachment::ChunkBytes))->assertOk();
-    $this->call('PUT', "/outreach-attachments/{$id}/chunks/1", [], [], [], ['CONTENT_TYPE' => 'application/octet-stream'], substr($pdf, OutreachAttachment::ChunkBytes))->assertOk();
-    $this->postJson(route('outreach.attachments.complete', $id))->assertOk();
-
-    expect(OutreachAttachment::find($id))->complete->toBeTrue()->is_default->toBeTrue()
-        ->and(OutreachAttachment::find($id)->contents())->toBe($pdf);
-
-    $fake = $this->postJson(route('outreach.attachments.store'), ['name' => 'Fake', 'filename' => 'fake.pdf', 'size' => 5])->json('id');
-    $this->call('PUT', "/outreach-attachments/{$fake}/chunks/0", [], [], [], ['CONTENT_TYPE' => 'application/octet-stream'], 'hello');
-    $this->postJson(route('outreach.attachments.complete', $fake))->assertUnprocessable();
-
-    expect(OutreachAttachment::find($fake))->toBeNull();
-
-    $this->postJson(route('outreach.attachments.store'), ['name' => 'Huge', 'filename' => 'huge.pdf', 'size' => OutreachAttachment::MaxBytes + 1])->assertJsonValidationErrors('size');
-    $this->postJson(route('outreach.attachments.store'), ['name' => 'Doc', 'filename' => 'notes.docx', 'size' => 10])->assertJsonValidationErrors('filename');
-});
-
-it('keeps staff out of the PDF library uploads', function () {
-    $this->actingAs(User::factory()->staff()->create());
-
-    $this->postJson(route('outreach.attachments.store'), ['name' => 'Portfolio', 'filename' => 'p.pdf', 'size' => 10])->assertForbidden();
-});
-
-it('puts the email with its PDFs in the partner\'s Outlook drafts and claims the prospect', function () {
-    outreachProspectWithDraft();
-    $portfolio = portfolio();
-    $partner = outlookPartner(['email_signature' => "Jim\nFormwerks"]);
-    $this->actingAs($partner);
-
-    Http::fake([
-        'graph.microsoft.com/v1.0/me/messages' => Http::response(['id' => 'msg-1', 'webLink' => 'https://outlook.office.com/owa/?ItemID=msg-1']),
-        'graph.microsoft.com/v1.0/me/messages/msg-1/attachments' => Http::response(['id' => 'att-1']),
-    ]);
-
-    Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])
-        ->assertSet('attachmentIds', [$portfolio->id])
-        ->call('createDraft')
-        ->assertSet('draftError', null)
-        ->assertSet('draftLink', 'https://outlook.office.com/owa/?ItemID=msg-1');
-
-    Http::assertSent(fn (Request $request) => $request->url() === 'https://graph.microsoft.com/v1.0/me/messages'
-        && $request->hasHeader('Authorization', 'Bearer access-1')
-        && $request['toRecipients'][0]['emailAddress']['address'] === 'hello@allaire.test'
-        && $request['body']['content'] === "Hi Marc,\n\nJim\nFormwerks");
-    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/msg-1/attachments')
-        && base64_decode($request['contentBytes']) === $portfolio->contents());
-
-    expect(OutreachStatus::firstWhere('prospect_key', 'allaire'))
-        ->claimed_by->toBe($partner->id)
-        ->drafted_by->toBe($partner->id)
-        ->sent_at->toBeNull();
-});
-
-it('sends a large PDF through an upload session in slices', function () {
-    outreachProspectWithDraft();
-    $portfolio = portfolio(4 * 1024 * 1024);
-    $this->actingAs(outlookPartner());
-
-    Http::fake([
-        'graph.microsoft.com/v1.0/me/messages' => Http::response(['id' => 'msg-1', 'webLink' => 'https://outlook.office.com/x']),
-        'graph.microsoft.com/v1.0/me/messages/msg-1/attachments/createUploadSession' => Http::response(['uploadUrl' => 'https://upload.outlook.test/session']),
-        'upload.outlook.test/*' => Http::response([], 200),
-    ]);
-
-    Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])->call('createDraft')->assertSet('draftError', null);
-
-    $slices = Http::recorded(fn (Request $request) => $request->url() === 'https://upload.outlook.test/session')->values();
-
-    expect($slices)->toHaveCount(2)
-        ->and($slices[0][0]->header('Content-Range')[0])->toBe('bytes 0-3276799/4194304')
-        ->and($slices[1][0]->header('Content-Range')[0])->toBe('bytes 3276800-4194303/4194304')
-        ->and($slices[0][0]->hasHeader('Authorization'))->toBeFalse();
-});
-
-it('asks the partner to connect Outlook, and drops a connection Microsoft no longer accepts', function () {
-    outreachProspectWithDraft();
-    $this->actingAs(User::factory()->manager()->create());
-
-    Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])
-        ->assertSee('Connect Outlook')
-        ->call('createDraft')
-        ->assertSet('draftError', 'Connect Outlook first, so the draft can go in your Drafts folder.');
-
-    $partner = outlookPartner(['outlook_expires_at' => now()->subMinute()]);
-    $this->actingAs($partner);
-    Http::fake(['login.microsoftonline.com/*' => Http::response(['error' => 'invalid_grant'], 400)]);
-
-    Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])
-        ->call('createDraft')
-        ->assertSet('draftError', 'Connect Outlook first, so the draft can go in your Drafts folder.');
-
-    expect($partner->fresh()->hasOutlook())->toBeFalse();
-});
-
-it('refreshes an expired Outlook token before creating the draft', function () {
-    outreachProspectWithDraft();
-    $partner = outlookPartner(['outlook_expires_at' => now()->subMinute()]);
-    $this->actingAs($partner);
-
-    Http::fake([
-        'login.microsoftonline.com/*' => Http::response(['access_token' => 'access-2', 'refresh_token' => 'refresh-2', 'expires_in' => 3600]),
-        'graph.microsoft.com/*' => Http::response(['id' => 'msg-1', 'webLink' => 'https://outlook.office.com/x']),
-    ]);
-
-    Livewire::test(OutreachShow::class, ['prospectKey' => 'allaire'])->call('createDraft')->assertSet('draftError', null);
-
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), 'graph.microsoft.com') && $request->hasHeader('Authorization', 'Bearer access-2'));
-    expect($partner->fresh())->outlook_refresh_token->toBe('refresh-2');
-});
 
 it('marks a prospect sent by hand and puts the developer on the Pipeline once', function () {
     outreachProspectWithDraft();

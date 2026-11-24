@@ -4,7 +4,6 @@ namespace App\Models;
 
 use App\Enums\Permission;
 use App\Enums\Role;
-use Carbon\CarbonImmutable;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -15,13 +14,10 @@ use Illuminate\Support\Str;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
- * @property ?string $outlook_access_token
- * @property ?string $outlook_refresh_token
- * @property ?CarbonImmutable $outlook_expires_at
  * @property ?string $email_signature
  */
 #[Fillable(['name', 'email', 'microsoft_id', 'avatar', 'last_login_at'])]
-#[Hidden(['remember_token', 'outlook_access_token', 'outlook_refresh_token'])]
+#[Hidden(['remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -36,16 +32,7 @@ class User extends Authenticatable
     {
         return [
             'last_login_at' => 'datetime',
-            'outlook_access_token' => 'encrypted',
-            'outlook_refresh_token' => 'encrypted',
-            'outlook_expires_at' => 'datetime',
         ];
-    }
-
-    /** Whether this user has let the dashboard put drafts in their Outlook. */
-    public function hasOutlook(): bool
-    {
-        return filled($this->outlook_refresh_token);
     }
 
     public function primaryRole(): Role

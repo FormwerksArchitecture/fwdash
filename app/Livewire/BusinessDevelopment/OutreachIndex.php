@@ -65,7 +65,6 @@ class OutreachIndex extends Component
         'mine' => ['Mine', 'Claimed by you'],
         'open' => ['Not contacted', 'Nobody has claimed it or sent anything'],
         'claimed' => ['Claimed', 'Someone is on it, nothing sent yet'],
-        'drafted' => ['Drafted', 'A draft is waiting in someone\'s Outlook'],
         'sent' => ['Sent', 'First email sent'],
     ];
 

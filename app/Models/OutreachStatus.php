@@ -12,8 +12,6 @@ use Illuminate\Support\Carbon;
  * @property string $prospect_key
  * @property ?int $claimed_by
  * @property ?Carbon $claimed_at
- * @property ?int $drafted_by
- * @property ?Carbon $drafted_at
  * @property ?int $sent_by
  * @property ?Carbon $sent_at
  * @property ?int $pursuit_id
@@ -26,7 +24,6 @@ class OutreachStatus extends Model
     {
         return [
             'claimed_at' => 'datetime',
-            'drafted_at' => 'datetime',
             'sent_at' => 'datetime',
         ];
     }
@@ -38,23 +35,16 @@ class OutreachStatus extends Model
     }
 
     /** @return BelongsTo<User, $this> */
-    public function drafter(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'drafted_by');
-    }
-
-    /** @return BelongsTo<User, $this> */
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sent_by');
     }
 
-    /** 'sent', 'drafted', 'claimed' or 'open'. */
+    /** 'sent', 'claimed' or 'open'. */
     public function stage(): string
     {
         return match (true) {
             $this->sent_at !== null => 'sent',
-            $this->drafted_at !== null => 'drafted',
             $this->claimed_by !== null => 'claimed',
             default => 'open',
         };

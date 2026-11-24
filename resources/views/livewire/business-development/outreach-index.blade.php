@@ -28,8 +28,6 @@
             </x-kpi>
         </div>
 
-        <livewire:business-development.outreach-attachments />
-
         <div class="card p-0">
             <div class="space-y-3 px-6 pt-5 pb-4">
                 <div class="toolbar">
@@ -146,9 +144,6 @@
                                     @switch($status?->stage())
                                         @case('sent')
                                             <span class="chip is-on">{{ __('Sent :date', ['date' => $status->sent_at->format('M j')]) }}</span>
-                                            @break
-                                        @case('drafted')
-                                            <span class="chip is-warn">{{ __('Drafted') }}</span>
                                             @break
                                         @case('claimed')
                                             <span class="chip">{{ Str::before($status->claimer?->name ?? '', ' ') ?: __('Claimed') }}</span>

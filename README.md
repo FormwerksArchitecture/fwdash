@@ -77,12 +77,7 @@ In Entra ID → App registrations → New registration:
 - Redirect URI (Web): `https://<your-domain>/auth/microsoft/callback`, plus
   `http://localhost:8000/auth/microsoft/callback` for local use.
 - Certificates & secrets → new client secret.
-- API permissions: Microsoft Graph `User.Read`, `Mail.ReadWrite` and
-  `offline_access` (all delegated). Sign-in only asks for `User.Read`; the
-  other two are requested when a partner clicks **Connect Outlook** on an
-  outreach page, so the dashboard can put drafts (with PDFs) in their Outlook
-  Drafts folder. It never sends mail. Grant admin consent if the tenant
-  doesn't let users consent to apps themselves.
+- API permissions: Microsoft Graph `User.Read` (delegated) is enough.
 
 Set `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` and `AZURE_TENANT_ID` (the
 directory ID). `AZURE_ALLOWED_DOMAINS` (default `formwerks.ca`) is a second guard.
