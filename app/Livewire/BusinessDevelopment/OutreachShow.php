@@ -45,7 +45,7 @@ class OutreachShow extends Component
         $status = $this->status();
 
         if ($status->claimed_by && $status->claimed_by !== auth()->id()) {
-            Flux::toast(__(':name claimed this first.', ['name' => $status->claimer?->name ?? __('Someone')]), variant: 'warning');
+            Flux::toast(__(':name claimed this first.', ['name' => $status->claimer->name]), variant: 'warning');
 
             return;
         }
